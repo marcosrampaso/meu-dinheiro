@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.DS_Store
+
+# Dados financeiros e copias locais
+data/
+*.db
+*.db-*
+*.sqlite*
+*.bak
+*.csv
+*.ofx
+*.pdf
+!tests/fixtures/sample_statement.pdf
+*.zip
+
+# Segredos locais
+.env
+.env.*
+!.env.example

@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#eef3ef">
+  <title>Meu Dinheiro</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+  <script src="/import.js" defer></script>
+  <script src="/charts.js" defer></script>
+  <script src="/categories.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">◈</span><span>Meu Dinheiro</span></div>
+      <span class="local-badge">Dados salvos neste computador</span>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">VISÃO GERAL</p>
+          <h1 id="page-title">Suas finanças, com clareza.</h1>
+          <p class="hero-subtitle">Registre o que entra e sai e acompanhe seu mês em um só lugar.</p>
+        </div>
+        <div class="view-controls">
+          <label class="month-picker">Visão <select id="scope-view" aria-label="Visão"><option value="personal">Pessoal</option><option value="business">PJ</option><option value="all">Tudo</option></select></label>
+          <label class="month-picker">Mês de referência <input id="month" type="month" aria-label="Mês de referência"></label>
+        </div>
+      </section>
+
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+      <section class="cards" aria-label="Resumo do mês">
+        <article class="metric metric-balance"><span>Saldo nas contas</span><strong id="balance">—</strong><small id="balance-as-of">Último extrato importado</small></article>
+        <article class="metric"><span>Receita do mês</span><strong id="income">R$ 0,00</strong><small>Sem transferências entre suas contas</small></article>
+        <article class="metric"><span>Saídas das contas</span><strong id="expenses">R$ 0,00</strong><small>Inclui faturas pagas</small></article>
+        <article class="metric"><span>Fatura paga no mês</span><strong id="card-payment">R$ 0,00</strong><small id="card-purchases">Compras no cartão: R$ 0,00</small></article>
+      </section>
+
+      <section class="charts-section" aria-labelledby="charts-title">
+        <div class="charts-heading"><div><p class="eyebrow">EVOLUÇÃO</p><h2 id="charts-title">Seus números ao longo do tempo</h2><p>Os gráficos acompanham a visão e o mês selecionados.</p></div><label class="chart-period">Período <select id="chart-months" aria-label="Período dos gráficos"><option value="6">6 meses</option><option value="12">12 meses</option><option value="24">24 meses</option></select></label></div>
+        <div class="charts-grid">
+          <article class="panel chart-panel" aria-labelledby="cashflow-title"><div class="panel-header"><div><h3 id="cashflow-title">Entradas e saídas</h3><p>Movimento das contas, sem transferências internas</p></div></div><div id="cashflow-chart" class="chart-area" aria-live="polite"></div><div class="chart-legend"><span><i class="legend-income"></i>Entradas</span><span><i class="legend-expense"></i>Saídas</span></div><p id="cashflow-note" class="chart-note"></p></article>
+          <article class="panel chart-panel" aria-labelledby="invoice-chart-title"><div class="panel-header"><div><h3 id="invoice-chart-title">Faturas do cartão</h3><p>Total por mês da fatura importada</p></div></div><div id="invoice-chart" class="chart-area" aria-live="polite"></div><p id="invoice-chart-note" class="chart-note"></p></article>
+          <article class="panel chart-panel chart-wide" aria-labelledby="balance-chart-title"><div class="panel-header"><div><h3 id="balance-chart-title">Saldo das contas</h3><p>Saldo registrado nos dias disponíveis em cada extrato</p></div></div><div id="balance-chart" class="chart-area" aria-live="polite"></div><div id="balance-chart-legend" class="chart-legend"></div><p id="balance-chart-note" class="chart-note"></p></article>
+        </div>
+      </section>
+
+      <div class="content-grid">
+        <section class="panel form-panel" aria-labelledby="form-title">
+          <div class="panel-header"><div><p class="eyebrow">LANÇAMENTO</p><h2 id="form-title">Novo lançamento</h2></div></div>
+          <form id="transaction-form">
+            <div class="type-switch" role="group" aria-label="Tipo de lançamento">
+              <label><input type="radio" name="kind" value="expense" checked><span>Despesa</span></label>
+              <label><input type="radio" name="kind" value="income"><span>Receita</span></label>
+            </div>
+            <label>Descrição<input name="description" maxlength="120" placeholder="Ex.: supermercado" required></label>
+            <div class="form-row">
+              <label>Valor (R$)<input name="amount" inputmode="decimal" placeholder="0,00" required></label>
+              <label>Data<input name="occurred_on" type="date" required></label>
+            </div>
+            <label>Categoria<input name="category" maxlength="60" list="categories" placeholder="Ex.: Alimentação" required></label>
+            <label>Área<select name="scope"><option value="personal">Pessoal</option><option value="business">PJ</option></select></label>
+            <datalist id="categories"><option value="Alimentação"><option value="Mercado"><option value="Moradia"><option value="Transporte"><option value="Saúde"><option value="Educação"><option value="Lazer"><option value="Compras"><option value="Assinaturas"><option value="Viagens"><option value="Cuidados pessoais"><option value="Impostos e taxas"><option value="Serviços"><option value="Outros"><option value="Salário"></datalist>
+            <label class="checkbox-line"><input name="excluded" type="checkbox"><span>Não incluir no resumo (transferência ou pagamento de fatura)</span></label>
+            <div class="form-actions"><button id="save-button" class="primary-button" type="submit">Salvar lançamento</button><button id="cancel-button" class="text-button" type="button" hidden>Cancelar edição</button></div>
+          </form>
+        </section>
+
+        <section class="panel categories-panel" aria-labelledby="category-title">
+        <div class="panel-header"><div><p class="eyebrow">PARA ONDE FOI</p><h2 id="category-title">Compras por categoria</h2><p class="category-caption">Débito e compras do cartão pela data da compra; sem pagamentos de fatura.</p></div><strong id="purchase-total" class="category-total">R$ 0,00</strong></div>
+          <div id="categories-list" class="categories-list"></div>
+          <div class="ai-categories" aria-labelledby="ai-categories-title">
+            <h3 id="ai-categories-title">Sugerir categorias com IA</h3>
+            <p>Envie somente as descrições das compras ainda sem categoria para a OpenAI. Confira as sugestões antes de salvar; valores, datas e saldos não são enviados ao modelo.</p>
+            <div class="ai-category-controls"><label>Compras de <select id="categorization-range"><option value="all">Todo o histórico</option><option value="month">Este mês</option></select></label><button id="suggest-categories" class="secondary-button" type="button">Gerar sugestões</button></div>
+            <p id="categorization-status" class="ai-category-status" role="status" aria-live="polite"></p>
+            <div id="categorization-preview" hidden><div id="categorization-list" class="ai-category-list"></div><div class="form-actions"><button id="apply-categories" class="primary-button" type="button">Aplicar categorias</button><button id="cancel-categories" class="text-button" type="button">Cancelar</button></div></div>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel import-panel" aria-labelledby="import-title">
+        <div class="panel-header"><div><p class="eyebrow">IMPORTAÇÃO</p><h2 id="import-title">Trazer extrato do banco</h2></div></div>
+        <p class="panel-intro">Selecione faturas PDF ou extratos CSV/OFX do Inter ou do Banco do Brasil. Você pode selecionar várias faturas PDF do mesmo banco e cartão de uma vez. Confira a prévia antes de salvar.</p>
+        <form id="import-form">
+          <div class="import-fields">
+            <label>Banco<select name="bank"><option value="inter">Inter</option><option value="bb">Banco do Brasil</option></select></label>
+            <label>Área<select name="scope"><option value="personal">Pessoal</option><option value="business">PJ</option></select></label>
+            <label>Tipo de extrato<select name="mode"><option value="card">Cartão de crédito</option><option value="account">Conta corrente</option></select></label>
+            <label>Como as despesas aparecem?<select name="expense_sign"><option value="positive">Com valor positivo</option><option value="negative">Com valor negativo</option></select></label>
+            <label>Identificação da conta ou cartão<input name="account" maxlength="50" placeholder="Ex.: cartão principal" required></label>
+            <label>Arquivos PDF, CSV ou OFX<input name="file" type="file" accept=".pdf,.csv,.ofx" multiple required></label>
+            <label>Senha dos PDFs, se houver<input name="pdf_password" type="password" autocomplete="off" placeholder="Usada apenas para ler os arquivos"></label>
+          </div>
+          <div id="import-status" class="import-status" role="status" aria-live="polite"></div>
+          <div id="selected-files" class="selected-files"></div>
+          <div id="mapping-panel" hidden><h3>Colunas do CSV</h3><p class="helper">Confirme quais colunas contêm data, descrição e valor. Use valor único ou débito e crédito separados.</p><div id="mapping-fields" class="mapping-fields"></div></div>
+          <div class="form-actions"><button id="preview-button" class="primary-button" type="submit">Ver prévia</button><button id="import-button" class="secondary-button" type="button" disabled>Importar lançamentos</button></div>
+          <div id="import-preview" class="import-preview" hidden></div>
+        </form>
+        <p class="import-tip">Pagamentos de fatura entram nas saídas do mês; compras do cartão aparecem separadamente, pela data da compra. Transferências entre suas contas, aplicações e cashback não contam como receita ou gasto. Confira a prévia antes de importar.</p>
+      </section>
+
+      <section class="panel invoice-panel" aria-labelledby="invoice-title">
+        <div class="panel-header"><div><p class="eyebrow">HISTÓRICO</p><h2 id="invoice-title">Faturas importadas</h2></div></div>
+        <div id="invoice-list"></div>
+      </section>
+
+      <section class="panel transactions-panel" aria-labelledby="transactions-title">
+        <div class="panel-header"><div><p class="eyebrow">HISTÓRICO</p><h2 id="transactions-title">Lançamentos do mês</h2></div><span id="count" class="count">0 lançamentos</span></div>
+        <div id="transactions-list" class="transactions-list"></div>
+      </section>
+    </main>
+    <footer>Meu Dinheiro · Seus dados ficam no arquivo local do programa.</footer>
+  </div>
+</body>
+</html>

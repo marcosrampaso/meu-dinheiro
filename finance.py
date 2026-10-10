@@ -1,0 +1,597 @@
+"""Storage and validation for a small personal finance application."""
+
+from __future__ import annotations
+
+import sqlite3
+import re
+import unicodedata
+from contextlib import closing, contextmanager
+from datetime import date
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from pathlib import Path
+
+
+class ValidationError(ValueError):
+    """Raised when a transaction contains invalid user input."""
+
+
+class NotFoundError(LookupError):
+    """Raised when a transaction ID does not exist."""
+
+
+PURCHASE_CATEGORIES = (
+    "Alimentação", "Mercado", "Moradia", "Transporte", "Saúde", "Educação",
+    "Lazer", "Compras", "Assinaturas", "Viagens", "Cuidados pessoais",
+    "Impostos e taxas", "Serviços", "Outros",
+)
+
+
+def parse_amount(value: str) -> int:
+    """Convert a Brazilian or decimal amount to positive integer cents."""
+    if not isinstance(value, str):
+        raise ValidationError("Informe um valor válido.")
+    raw = re.sub(r"\s+", "", value.replace("R$", ""))
+    if not raw:
+        raise ValidationError("Informe um valor válido.")
+    if "," in raw:
+        if not re.fullmatch(r"(?:\d{1,3}(?:\.\d{3})+|\d+),\d{1,2}", raw):
+            raise ValidationError("Informe um valor válido.")
+        whole, fraction = raw.split(",")
+        raw = whole.replace(".", "") + "." + fraction
+    elif re.fullmatch(r"\d{1,3}(?:\.\d{3})+", raw):
+        raw = raw.replace(".", "")
+    elif not re.fullmatch(r"\d+(?:\.\d{1,2})?", raw):
+        raise ValidationError("Informe um valor válido com até duas casas decimais.")
+    try:
+        amount = Decimal(raw)
+    except InvalidOperation as exc:
+        raise ValidationError("Informe um valor válido.") from exc
+    cents = int((amount * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    if cents <= 0:
+        raise ValidationError("O valor deve ser maior que zero.")
+    if cents > 999_999_999_99:
+        raise ValidationError("O valor é muito alto.")
+    return cents
+
+
+def validate_month(value: str) -> str:
+    if not isinstance(value, str) or len(value) != 7:
+        raise ValidationError("Use o mês no formato AAAA-MM.")
+    try:
+        date.fromisoformat(value + "-01")
+    except ValueError as exc:
+        raise ValidationError("Use um mês válido no formato AAAA-MM.") from exc
+    return value
+
+
+def validate_scope(value: str, allow_all: bool = False) -> str:
+    if value not in (("personal", "business", "all") if allow_all else ("personal", "business")):
+        raise ValidationError("Escolha Pessoal ou PJ.")
+    return value
+
+
+def validate_transaction(data: dict) -> dict:
+    if not isinstance(data, dict):
+        raise ValidationError("Dados do lançamento inválidos.")
+    kind = data.get("kind")
+    if kind not in ("income", "expense"):
+        raise ValidationError("Escolha receita ou despesa.")
+    excluded = data.get("excluded", False)
+    scope = validate_scope(data.get("scope", "personal"))
+    if not isinstance(excluded, bool):
+        raise ValidationError("A opção de ignorar no resumo deve ser verdadeira ou falsa.")
+    if not isinstance(data.get("description"), str) or not isinstance(data.get("category"), str):
+        raise ValidationError("Informe descrição e categoria em texto.")
+    description = data["description"].strip()
+    category = data["category"].strip()
+    if not description or len(description) > 120:
+        raise ValidationError("A descrição deve ter de 1 a 120 caracteres.")
+    if not category or len(category) > 60:
+        raise ValidationError("A categoria deve ter de 1 a 60 caracteres.")
+    occurred_on = data.get("occurred_on")
+    try:
+        parsed_date = date.fromisoformat(occurred_on)
+        if parsed_date.isoformat() != occurred_on:
+            raise ValueError
+    except (TypeError, ValueError) as exc:
+        raise ValidationError("Informe uma data válida no formato AAAA-MM-DD.") from exc
+    return {
+        "kind": kind,
+        "description": description,
+        "category": category,
+        "amount_cents": parse_amount(data.get("amount")),
+        "occurred_on": occurred_on,
+        "excluded": int(excluded),
+        "scope": scope,
+    }
+
+
+class FinanceStore:
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._backup_before_migration()
+        with self._connect() as connection:
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kind TEXT NOT NULL CHECK (kind IN ('income', 'expense')),
+                    description TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+                    occurred_on TEXT NOT NULL,
+                    excluded INTEGER NOT NULL DEFAULT 0 CHECK (excluded IN (0, 1)),
+                    source TEXT NOT NULL DEFAULT 'Manual',
+                    import_key TEXT,
+                    invoice_month TEXT,
+                    scope TEXT NOT NULL DEFAULT 'personal' CHECK (scope IN ('personal', 'business')),
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            existing_columns = {row["name"] for row in connection.execute("PRAGMA table_info(transactions)")}
+            if "excluded" not in existing_columns:
+                connection.execute("ALTER TABLE transactions ADD COLUMN excluded INTEGER NOT NULL DEFAULT 0")
+            if "source" not in existing_columns:
+                connection.execute("ALTER TABLE transactions ADD COLUMN source TEXT NOT NULL DEFAULT 'Manual'")
+            if "import_key" not in existing_columns:
+                connection.execute("ALTER TABLE transactions ADD COLUMN import_key TEXT")
+            if "invoice_month" not in existing_columns:
+                connection.execute("ALTER TABLE transactions ADD COLUMN invoice_month TEXT")
+            if "scope" not in existing_columns:
+                connection.execute("ALTER TABLE transactions ADD COLUMN scope TEXT NOT NULL DEFAULT 'personal'")
+            connection.execute("CREATE INDEX IF NOT EXISTS transactions_date_idx ON transactions(occurred_on)")
+            connection.execute("CREATE INDEX IF NOT EXISTS transactions_scope_date_idx ON transactions(scope, occurred_on)")
+            connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS transactions_import_key_idx ON transactions(import_key)")
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS account_balances (
+                    source TEXT NOT NULL,
+                    scope TEXT NOT NULL CHECK (scope IN ('personal', 'business')),
+                    as_of TEXT NOT NULL,
+                    amount_cents INTEGER NOT NULL,
+                    PRIMARY KEY (source, scope, as_of)
+                )
+            """)
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS statement_coverage (
+                    source TEXT NOT NULL,
+                    scope TEXT NOT NULL CHECK (scope IN ('personal', 'business')),
+                    starts_on TEXT NOT NULL,
+                    ends_on TEXT NOT NULL,
+                    PRIMARY KEY (source, scope, starts_on, ends_on)
+                )
+            """)
+
+    def _backup_before_migration(self) -> None:
+        if not self.path.exists():
+            return
+        with closing(sqlite3.connect(self.path)) as source:
+            columns = {row[1] for row in source.execute("PRAGMA table_info(transactions)")}
+            previous_columns = {"excluded", "source", "import_key", "invoice_month"}
+            if not columns or previous_columns | {"scope"} <= columns:
+                return
+            suffix = ".before-scope.bak" if previous_columns <= columns else ".before-import.bak"
+            backup_path = self.path.with_name(self.path.name + suffix)
+            if backup_path.exists():
+                return
+            with closing(sqlite3.connect(backup_path)) as backup:
+                source.backup(backup)
+
+    @contextmanager
+    def _connect(self):
+        connection = sqlite3.connect(self.path)
+        connection.row_factory = sqlite3.Row
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
+
+    def add(self, data: dict) -> dict:
+        item = validate_transaction(data)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "INSERT INTO transactions (kind, description, category, amount_cents, occurred_on, excluded, scope) "
+                "VALUES (:kind, :description, :category, :amount_cents, :occurred_on, :excluded, :scope)", item,
+            )
+            transaction_id = cursor.lastrowid
+        return self.get(transaction_id)
+
+    def get(self, transaction_id: int) -> dict:
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM transactions WHERE id = ?", (transaction_id,)).fetchone()
+        if row is None:
+            raise NotFoundError("Lançamento não encontrado.")
+        return dict(row)
+
+    def update(self, transaction_id: int, data: dict) -> dict:
+        item = validate_transaction({**data, "scope": data.get("scope", self.get(transaction_id)["scope"])})
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE transactions SET kind = :kind, description = :description, "
+                "category = :category, amount_cents = :amount_cents, occurred_on = :occurred_on, "
+                "excluded = :excluded, scope = :scope "
+                "WHERE id = :id", {**item, "id": transaction_id},
+            )
+            if cursor.rowcount == 0:
+                raise NotFoundError("Lançamento não encontrado.")
+        return self.get(transaction_id)
+
+    def delete(self, transaction_id: int) -> None:
+        with self._connect() as connection:
+            cursor = connection.execute("DELETE FROM transactions WHERE id = ?", (transaction_id,))
+            if cursor.rowcount == 0:
+                raise NotFoundError("Lançamento não encontrado.")
+
+    def list_month(self, month: str, scope: str = "personal") -> list[dict]:
+        month = validate_month(month)
+        scope = validate_scope(scope, allow_all=True)
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM transactions WHERE occurred_on >= ? AND occurred_on < ? "
+                "AND (? = 'all' OR scope = ?) ORDER BY occurred_on DESC, id DESC",
+                (month + "-01", _next_month(month) + "-01", scope, scope),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def add_imported(self, items: list[dict]) -> dict:
+        if not items or len(items) > 5000:
+            raise ValidationError("O arquivo deve conter de 1 a 5000 lançamentos.")
+        prepared = []
+        for item in items:
+            amount_cents = item.get("amount_cents")
+            if not isinstance(amount_cents, int) or amount_cents <= 0:
+                raise ValidationError("Valor inválido no arquivo.")
+            validated = validate_transaction({
+                **item,
+                "amount": str(Decimal(amount_cents) / 100),
+                "excluded": item.get("excluded", False),
+            })
+            source = item.get("source")
+            import_key = item.get("import_key")
+            invoice_month = item.get("invoice_month")
+            scope = validate_scope(item.get("scope", "personal"))
+            if not isinstance(source, str) or not source or len(source) > 80:
+                raise ValidationError("Origem do arquivo inválida.")
+            if not isinstance(import_key, str) or not re.fullmatch(r"[0-9a-f]{64}", import_key):
+                raise ValidationError("Identificador de importação inválido.")
+            if invoice_month is not None:
+                invoice_month = validate_month(invoice_month)
+            prepared.append({**validated, "source": source, "import_key": import_key,
+                             "invoice_month": invoice_month, "scope": scope})
+        imported = 0
+        with self._connect() as connection:
+            for item in prepared:
+                cursor = connection.execute(
+                    "INSERT INTO transactions (kind, description, category, amount_cents, occurred_on, "
+                    "excluded, source, import_key, invoice_month, scope) VALUES (:kind, :description, :category, :amount_cents, "
+                    ":occurred_on, :excluded, :source, :import_key, :invoice_month, :scope) "
+                    "ON CONFLICT(import_key) DO NOTHING", item,
+                )
+                imported += cursor.rowcount
+                if cursor.rowcount == 0 and item["excluded"] and item["category"] != "Importado":
+                    connection.execute(
+                        "UPDATE transactions SET excluded = 1, category = ? "
+                        "WHERE import_key = ? AND category = 'Importado' AND excluded = 0",
+                        (item["category"], item["import_key"]),
+                    )
+        return {"imported": imported, "skipped": len(prepared) - imported}
+
+    def save_account_balance(self, source: str, scope: str, as_of: str, amount_cents: int) -> None:
+        scope = validate_scope(scope)
+        if not isinstance(source, str) or not 1 <= len(source) <= 80:
+            raise ValidationError("Origem do saldo inválida.")
+        try:
+            if date.fromisoformat(as_of).isoformat() != as_of:
+                raise ValueError
+        except (TypeError, ValueError) as exc:
+            raise ValidationError("Data do saldo inválida.") from exc
+        if not isinstance(amount_cents, int) or isinstance(amount_cents, bool):
+            raise ValidationError("Saldo inválido.")
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO account_balances (source, scope, as_of, amount_cents) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(source, scope, as_of) DO UPDATE SET amount_cents = excluded.amount_cents",
+                (source, scope, as_of, amount_cents),
+            )
+
+    def save_account_statement(self, source: str, scope: str, period: dict | None,
+                               daily_balances: list[dict], latest_balance: dict | None = None) -> None:
+        """Save statement coverage and dated balances after a successful import."""
+        scope = validate_scope(scope)
+        if not isinstance(source, str) or not 1 <= len(source) <= 80:
+            raise ValidationError("Origem do saldo inválida.")
+        balances = {row["as_of"]: row["amount_cents"] for row in daily_balances}
+        if latest_balance:
+            balances[latest_balance["as_of"]] = latest_balance["amount_cents"]
+        for as_of, amount_cents in balances.items():
+            try:
+                if date.fromisoformat(as_of).isoformat() != as_of:
+                    raise ValueError
+            except (TypeError, ValueError) as exc:
+                raise ValidationError("Data do saldo inválida.") from exc
+            if not isinstance(amount_cents, int) or isinstance(amount_cents, bool):
+                raise ValidationError("Saldo inválido.")
+        if period:
+            starts_on, ends_on = period["starts_on"], period["ends_on"]
+            try:
+                if date.fromisoformat(starts_on).isoformat() != starts_on or date.fromisoformat(ends_on).isoformat() != ends_on or starts_on > ends_on:
+                    raise ValueError
+            except (TypeError, ValueError) as exc:
+                raise ValidationError("Período do extrato inválido.") from exc
+        with self._connect() as connection:
+            connection.executemany(
+                "INSERT INTO account_balances (source, scope, as_of, amount_cents) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(source, scope, as_of) DO UPDATE SET amount_cents = excluded.amount_cents",
+                [(source, scope, as_of, amount_cents) for as_of, amount_cents in balances.items()],
+            )
+            if period:
+                connection.execute(
+                    "INSERT OR IGNORE INTO statement_coverage (source, scope, starts_on, ends_on) VALUES (?, ?, ?, ?)",
+                    (source, scope, starts_on, ends_on),
+                )
+
+    def analytics(self, end_month: str, scope: str = "personal", months: int = 6) -> dict:
+        """Return chart data with explicit cash statement coverage."""
+        end_month = validate_month(end_month)
+        scope = validate_scope(scope, allow_all=True)
+        if isinstance(months, bool) or not isinstance(months, int) or not 1 <= months <= 24:
+            raise ValidationError("Escolha de 1 a 24 meses para os gráficos.")
+        month_list = [end_month]
+        for _ in range(months - 1):
+            month_list.insert(0, _previous_month(month_list[0]))
+        first_day = month_list[0] + "-01"
+        last_day = _next_month(end_month) + "-01"
+        with self._connect() as connection:
+            coverage_rows = [dict(row) for row in connection.execute(
+                "SELECT source, scope, starts_on, ends_on FROM statement_coverage "
+                "WHERE ends_on >= ? AND starts_on < ? AND (? = 'all' OR scope = ?)",
+                (first_day, last_day, scope, scope),
+            )]
+            known_sources = [tuple(row) for row in connection.execute(
+                "SELECT DISTINCT source, scope FROM statement_coverage WHERE (? = 'all' OR scope = ?)",
+                (scope, scope),
+            )]
+            balance_rows = [dict(row) for row in connection.execute(
+                "SELECT source, scope, as_of, amount_cents FROM account_balances "
+                "WHERE as_of >= ? AND as_of < ? AND (? = 'all' OR scope = ?) "
+                "ORDER BY scope, source, as_of",
+                (first_day, last_day, scope, scope),
+            )]
+        invoices_by_month: dict[str, dict] = {}
+        for invoice in self.invoice_history(scope):
+            month = invoice["invoice_month"]
+            entry = invoices_by_month.setdefault(month, {"total_cents": 0, "statement_count": 0})
+            entry["total_cents"] += invoice["expense_cents"] - invoice["credit_cents"]
+            entry["statement_count"] += 1
+        cashflow = []
+        invoices = []
+        for month in month_list:
+            start, end = month + "-01", _next_month(month) + "-01"
+            overlapping = [row for row in coverage_rows if row["starts_on"] < end and row["ends_on"] >= start]
+            account_items = [item for item in self.list_month(month, scope) if item["invoice_month"] is None]
+            if not overlapping and not account_items:
+                coverage = "none"
+            elif known_sources and all(_month_fully_covered(
+                    [row for row in overlapping if (row["source"], row["scope"]) == source],
+                    start, date.fromordinal(date.fromisoformat(end).toordinal() - 1).isoformat(),
+            ) for source in known_sources):
+                coverage = "full"
+            else:
+                coverage = "partial"
+            summary = self.summary(month, scope) if coverage != "none" else None
+            cashflow.append({"month": month, "coverage": coverage,
+                             "income_cents": summary["income_cents"] if summary else None,
+                             "expense_cents": summary["expense_cents"] if summary else None})
+            invoice = invoices_by_month.get(month)
+            invoices.append({"month": month,
+                             "total_cents": invoice["total_cents"] if invoice else None,
+                             "statement_count": invoice["statement_count"] if invoice else 0})
+        series: dict[tuple[str, str], list[dict]] = {}
+        for row in balance_rows:
+            series.setdefault((row["source"], row["scope"]), []).append(
+                {"date": row["as_of"], "amount_cents": row["amount_cents"]})
+        return {"scope": scope, "end_month": end_month, "months": month_list,
+                "cashflow": cashflow, "invoices": invoices,
+                "balance_series": [{"source": source, "scope": account_scope, "points": points}
+                                   for (source, account_scope), points in series.items()]}
+
+    def account_balance_snapshots(self, month: str, scope: str = "personal") -> list[dict]:
+        month = validate_month(month)
+        scope = validate_scope(scope, allow_all=True)
+        with self._connect() as connection:
+            rows = connection.execute("""
+                SELECT balances.source, balances.scope, balances.as_of, balances.amount_cents
+                FROM account_balances AS balances
+                WHERE balances.as_of < ? AND (? = 'all' OR balances.scope = ?)
+                  AND balances.as_of = (
+                      SELECT MAX(candidate.as_of) FROM account_balances AS candidate
+                      WHERE candidate.source = balances.source AND candidate.scope = balances.scope
+                        AND candidate.as_of < ?
+                  )
+                ORDER BY balances.scope, balances.source
+            """, (_next_month(month) + "-01", scope, scope, _next_month(month) + "-01")).fetchall()
+        return [dict(row) for row in rows]
+
+    def reconcile_internal_transfers(self) -> int:
+        """Exclude unique same-day PJ→PF transfers with matching counterparty names."""
+        with self._connect() as connection:
+            rows = connection.execute("""
+                SELECT id, scope, kind, occurred_on, amount_cents, description
+                FROM transactions
+                WHERE invoice_month IS NULL AND excluded = 0 AND category = 'Importado'
+                  AND ((scope = 'business' AND kind = 'expense')
+                    OR (scope = 'personal' AND kind = 'income'))
+            """).fetchall()
+            outgoing: dict[tuple[str, int], list] = {}
+            incoming: dict[tuple[str, int], list] = {}
+            for row in rows:
+                target = outgoing if row["scope"] == "business" else incoming
+                target.setdefault((row["occurred_on"], row["amount_cents"]), []).append(row)
+            matched = 0
+            for key, business_rows in outgoing.items():
+                personal_rows = incoming.get(key, [])
+                if len(business_rows) != 1 or len(personal_rows) != 1:
+                    continue
+                left = _description_words(business_rows[0]["description"])
+                right = _description_words(personal_rows[0]["description"])
+                if len(left & right) < 2 or len(left & right) / len(left | right) < 0.8:
+                    continue
+                connection.execute(
+                    "UPDATE transactions SET excluded = 1, category = 'Transferência entre contas' "
+                    "WHERE id IN (?, ?)", (business_rows[0]["id"], personal_rows[0]["id"]),
+                )
+                matched += 1
+        return matched
+
+    def invoice_history(self, scope: str = "personal") -> list[dict]:
+        scope = validate_scope(scope, allow_all=True)
+        with self._connect() as connection:
+            rows = connection.execute("""
+                SELECT invoice_month, source, scope,
+                    COUNT(*) AS transaction_count,
+                    SUM(CASE WHEN kind = 'expense' THEN amount_cents ELSE 0 END) AS expense_cents,
+                    SUM(CASE WHEN kind = 'income' THEN amount_cents ELSE 0 END) AS credit_cents
+                FROM transactions
+                WHERE invoice_month IS NOT NULL AND (? = 'all' OR scope = ?)
+                GROUP BY invoice_month, source, scope
+                ORDER BY invoice_month DESC, source
+            """, (scope, scope)).fetchall()
+        return [dict(row) for row in rows]
+
+    def uncategorized_purchases(self, scope: str = "personal", month: str | None = None,
+                                limit: int = 40) -> tuple[list[dict], int]:
+        scope = validate_scope(scope, allow_all=True)
+        if month is not None:
+            month = validate_month(month)
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 40:
+            raise ValidationError("Selecione até 40 compras por vez.")
+        start = month + "-01" if month else None
+        end = _next_month(month) + "-01" if month else None
+        conditions = ("kind = 'expense' AND excluded = 0 AND category = 'Importado' "
+                      "AND (? = 'all' OR scope = ?) "
+                      "AND (? IS NULL OR (occurred_on >= ? AND occurred_on < ?))")
+        params = (scope, scope, month, start, end)
+        with self._connect() as connection:
+            count = connection.execute(f"SELECT COUNT(*) FROM transactions WHERE {conditions}", params).fetchone()[0]
+            rows = connection.execute(
+                f"SELECT id, description, amount_cents, occurred_on, source, scope, invoice_month "
+                f"FROM transactions WHERE {conditions} ORDER BY occurred_on DESC, id DESC LIMIT ?",
+                (*params, limit),
+            ).fetchall()
+        return [dict(row) for row in rows], count
+
+    def apply_purchase_categories(self, suggestions: list[dict], scope: str = "personal") -> dict:
+        scope = validate_scope(scope, allow_all=True)
+        if not isinstance(suggestions, list) or not 1 <= len(suggestions) <= 40:
+            raise ValidationError("Envie de 1 a 40 categorias.")
+        ids = set()
+        for item in suggestions:
+            if not isinstance(item, dict) or set(item) != {"id", "category"}:
+                raise ValidationError("Sugestão de categoria inválida.")
+            transaction_id, category = item["id"], item["category"]
+            if isinstance(transaction_id, bool) or not isinstance(transaction_id, int) or transaction_id <= 0 or transaction_id in ids:
+                raise ValidationError("ID de compra inválido ou repetido.")
+            if category not in PURCHASE_CATEGORIES:
+                raise ValidationError("Categoria de compra inválida.")
+            ids.add(transaction_id)
+        applied = 0
+        with self._connect() as connection:
+            for item in suggestions:
+                cursor = connection.execute(
+                    "UPDATE transactions SET category = ? WHERE id = ? AND kind = 'expense' "
+                    "AND excluded = 0 AND category = 'Importado' AND (? = 'all' OR scope = ?)",
+                    (item["category"], item["id"], scope, scope),
+                )
+                applied += cursor.rowcount
+        return {"applied": applied, "skipped": len(suggestions) - applied}
+
+    def invoice_items(self, month: str, source: str, scope: str = "personal") -> list[dict]:
+        month = validate_month(month)
+        scope = validate_scope(scope)
+        if not isinstance(source, str) or not 1 <= len(source) <= 80:
+            raise ValidationError("Origem da fatura inválida.")
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM transactions WHERE invoice_month = ? AND source = ? AND scope = ? "
+                "ORDER BY occurred_on, id", (month, source, scope),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def summary(self, month: str, scope: str = "personal") -> dict:
+        items = self.list_month(month, scope)
+        account_items = [item for item in items if item["invoice_month"] is None]
+        income = sum(item["amount_cents"] for item in account_items
+                     if item["kind"] == "income" and not item["excluded"])
+        expenses = sum(item["amount_cents"] for item in account_items
+                       if item["kind"] == "expense" and (not item["excluded"] or item["category"] == "Pagamento de fatura"))
+        card_payments = sum(item["amount_cents"] for item in account_items
+                            if item["kind"] == "expense" and item["category"] == "Pagamento de fatura")
+        card_purchases = sum(item["amount_cents"] for item in items
+                             if item["invoice_month"] is not None and item["kind"] == "expense"
+                             and not item["excluded"])
+        by_category: dict[str, int] = {}
+        for item in account_items:
+            if item["kind"] == "expense" and (not item["excluded"] or item["category"] == "Pagamento de fatura"):
+                by_category[item["category"]] = by_category.get(item["category"], 0) + item["amount_cents"]
+        purchases_by_category: dict[str, int] = {}
+        for item in items:
+            if item["kind"] == "expense" and not item["excluded"] and item["category"] != "Pagamento de fatura":
+                purchases_by_category[item["category"]] = (
+                    purchases_by_category.get(item["category"], 0) + item["amount_cents"])
+        purchase_total = sum(purchases_by_category.values())
+        snapshots = self.account_balance_snapshots(month, scope)
+        invoice_history = self.invoice_history(scope)
+        latest_invoice_month = invoice_history[0]["invoice_month"] if invoice_history else None
+        return {
+            "month": month,
+            "scope": scope,
+            "income_cents": income,
+            "expense_cents": expenses,
+            "balance_cents": income - expenses,
+            "cash_balance_cents": sum(item["amount_cents"] for item in snapshots) if snapshots else None,
+            "cash_balance_snapshots": snapshots,
+            "card_payment_cents": card_payments,
+            "card_purchases_cents": card_purchases,
+            "purchase_total_cents": purchase_total,
+            "purchase_categories": [
+                {"category": name, "amount_cents": amount}
+                for name, amount in sorted(purchases_by_category.items(), key=lambda pair: (-pair[1], pair[0]))
+            ],
+            "latest_invoice_month": latest_invoice_month,
+            "expense_categories": [
+                {"category": name, "amount_cents": amount}
+                for name, amount in sorted(by_category.items(), key=lambda pair: (-pair[1], pair[0]))
+            ],
+        }
+
+
+def _description_words(value: str) -> set[str]:
+    plain = "".join(char for char in unicodedata.normalize("NFKD", value.lower())
+                    if not unicodedata.combining(char))
+    return {word for word in re.findall(r"[a-z]{4,}", plain)
+            if word not in {"banco", "inter", "pix", "enviado", "recebido", "conta"}}
+
+
+def _next_month(month: str) -> str:
+    year, number = map(int, month.split("-"))
+    if number == 12:
+        return f"{year + 1:04d}-01"
+    return f"{year:04d}-{number + 1:02d}"
+
+
+def _previous_month(month: str) -> str:
+    year, number = map(int, month.split("-"))
+    return f"{year - 1:04d}-12" if number == 1 else f"{year:04d}-{number - 1:02d}"
+
+
+def _month_fully_covered(periods: list[dict], first_day: str, last_day: str) -> bool:
+    covered_until = date.fromisoformat(first_day).toordinal() - 1
+    for period in sorted(periods, key=lambda row: row["starts_on"]):
+        start = date.fromisoformat(period["starts_on"]).toordinal()
+        end = date.fromisoformat(period["ends_on"]).toordinal()
+        if start > covered_until + 1:
+            return False
+        covered_until = max(covered_until, end)
+        if covered_until >= date.fromisoformat(last_day).toordinal():
+            return True
+    return False

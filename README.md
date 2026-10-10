@@ -1,0 +1,80 @@
+# Meu Dinheiro
+
+Aplicação local de finanças em Python, com tela no navegador e API JSON. Organiza lançamentos pessoais e de empresa, importa extratos e faturas, mostra gráficos mensais e permite revisar sugestões de categorias para compras.
+
+## Começar
+
+Requer Python 3.10 ou mais recente. A biblioteca `pypdf` já está incluída em `vendor`, então o uso básico não exige instalação de pacotes.
+
+```bash
+python3 app.py
+```
+
+Acesse <http://127.0.0.1:8765>. Para usar outra porta ou outro banco SQLite:
+
+```bash
+python3 app.py --port 8767 --db /caminho/para/financas.db
+```
+
+O banco padrão fica em `data/financas.db` e é criado na primeira execução. **Bancos, extratos, faturas, senhas e chaves de API não fazem parte do repositório.** Faça backup do banco separadamente. O servidor escuta apenas em `127.0.0.1`; uma futura versão acessível pela rede precisará de autenticação.
+
+## Funcionalidades
+
+- Cadastro, edição e exclusão de receitas e despesas, com valores armazenados em centavos inteiros.
+- Visões **Pessoal**, **PJ** e **Tudo**. Transferências identificadas entre contas próprias não duplicam a receita consolidada.
+- Importação de faturas PDF de cartão e extratos CSV/OFX, com prévia e proteção contra importação repetida.
+- Histórico de faturas por mês, banco e cartão.
+- Gráficos de entradas e saídas, faturas e saldos gerados dinamicamente a partir da API. Meses sem extrato não são apresentados como saldo zero.
+- Compras por categoria, com sugestões opcionais por IA que precisam de confirmação antes de serem salvas.
+
+As **saídas das contas** incluem pagamentos de fatura. As compras feitas no cartão aparecem na data da compra e no histórico da fatura, sem serem somadas novamente ao fluxo de caixa. Transferências internas e cashback identificados ficam fora da receita consolidada. Confira as marcações após importar novos formatos de extrato.
+
+## Importar dados
+
+Na seção **Trazer extrato do banco**, escolha Inter ou Banco do Brasil, o tipo de arquivo e a visão Pessoal ou PJ. Use o mesmo nome de conta ou cartão nas importações seguintes.
+
+Para faturas PDF, é possível selecionar vários arquivos do mesmo banco e cartão. Confirme o mês de cada fatura, veja a prévia e só então importe. O leitor funciona com PDFs que contêm texto selecionável; PDFs digitalizados como imagem ainda precisam de OCR. O formato do Inter é conferido contra o total impresso na fatura quando disponível. **O layout de faturas do BB ainda não foi validado com uma amostra real; confira cuidadosamente a prévia e a soma antes de confirmar.** PDFs protegidos por AES podem exigir o pacote opcional `cryptography` no ambiente Python.
+
+Para extratos CSV/OFX, selecione um arquivo por vez. Em CSV, confira o mapeamento de data, descrição e valor e o sinal das despesas. O arquivo original e a senha não são armazenados; somente os lançamentos importados ficam no SQLite. Os limites são 5 MB por PDF ou 2 MB por CSV/OFX, com até 5.000 lançamentos por arquivo.
+
+## Categorias com IA
+
+Configure a variável de ambiente `OPENAI_API_KEY` **no processo do servidor** e reinicie a aplicação. Na tela, escolha o período, gere sugestões para até 40 compras, revise as categorias e clique em **Aplicar categorias**. Sem a chave, o restante do programa funciona normalmente.
+
+A integração usa a API Responses da OpenAI com o modelo configurado em [`categorizer.py`](categorizer.py). Envia apenas IDs e descrições das compras selecionadas; identificadores comuns nas descrições são mascarados. Valores, datas, saldos e arquivos originais não são enviados. A chamada pode gerar custo de API. A chave não é enviada ao navegador nem salva no SQLite.
+
+## API
+
+Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: application/json`. Valores monetários de entrada são strings, como `"123,45"`; leituras retornam `amount_cents` como inteiro.
+
+| Método | Rota | Função |
+| --- | --- | --- |
+| GET | `/summary?month=AAAA-MM&scope=personal` | Resumo mensal |
+| GET | `/analytics?month=AAAA-MM&scope=all&months=6` | Séries dos gráficos; `months` aceita de 1 a 24 |
+| GET | `/transactions?month=AAAA-MM&scope=business` | Lista de lançamentos |
+| GET | `/transactions/{id}` | Um lançamento |
+| POST | `/transactions` | Criar lançamento |
+| PUT | `/transactions/{id}` | Atualizar lançamento |
+| DELETE | `/transactions/{id}` | Excluir lançamento |
+| GET | `/invoices?scope=personal` | Faturas importadas |
+| GET | `/invoices/{AAAA-MM}?source=...&scope=personal` | Itens de uma fatura |
+| POST | `/imports/inspect` | Identificar formato e colunas |
+| POST | `/imports/preview` | Validar lançamentos antes de salvar |
+| POST | `/imports` | Importar sem duplicar |
+| GET | `/categorization/status?scope=personal&month=AAAA-MM` | Estado da categorização |
+| POST | `/categorization/suggest` | Sugerir categorias sem salvar |
+| POST | `/categorization/apply` | Salvar categorias revisadas |
+
+`scope` aceita `personal` e `business`; leituras de resumo e lista também aceitam `all`. As rotas de importação recebem JSON com `filename` e `content` para CSV/OFX ou `content_base64` para PDF, além de banco, tipo de conta e opções de importação. A tela monta esse JSON.
+
+## Desenvolvimento
+
+```bash
+python3 -m unittest discover -s tests -v
+node --check static/app.js
+node --check static/import.js
+node --check static/charts.js
+node --check static/categories.js
+```
+
+O pacote [`pypdf`](https://pypdf.readthedocs.io/) incluído em `vendor` mantém sua licença em [`vendor/PYPDF-LICENSE.txt`](vendor/PYPDF-LICENSE.txt).
