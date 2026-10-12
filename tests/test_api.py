@@ -230,6 +230,26 @@ class ApiTests(unittest.TestCase):
                          [{"category": "Alimentação", "amount_cents": 2500}])
         self.assertEqual(self.call_api("/api/v1/categorization/status?month=2026-10")[1]["uncategorized_count"], 0)
 
+    def test_categorization_type_filters_status_and_suggestions(self):
+        account = self.store.add({"kind": "expense", "description": "Débito", "amount": "25,00",
+                                  "category": "Importado", "occurred_on": "2026-10-09"})
+        self.store.add_card_purchase({"bank": "inter", "account": "principal", "scope": "personal",
+                                      "invoice_month": "2026-11", "occurred_on": "2026-10-09",
+                                      "description": "Crédito", "amount": "50,00", "category": "Importado"})
+        self.store.add({"kind": "expense", "description": "PJ", "amount": "10,00",
+                        "category": "Importado", "occurred_on": "2026-10-09", "scope": "business"})
+        status, info = self.call_api(
+            "/api/v1/categorization/status?scope=personal&month=2026-10&payment_type=account")
+        self.assertEqual((status, info["uncategorized_count"]), (200, 1))
+        self.assertEqual(info["pending_by_scope"]["business"]["account"], 1)
+        with patch.object(self.server.auth, "inference_credentials", return_value=("test-token", "gpt-6-luna")):
+            with patch("app.suggest_categories", return_value=[{"id": account["id"], "category": "Outros"}]):
+                status, result = self.call_api("/api/v1/categorization/suggest", "POST", {
+                    "scope": "personal", "month": "2026-10", "payment_type": "account"})
+        self.assertEqual((status, [item["id"] for item in result["items"]]), (200, [account["id"]]))
+        self.assertEqual(self.call_api(
+            "/api/v1/categorization/status?payment_type=invalid")[0], 400)
+
     def test_categorization_never_uses_old_api_key_without_chatgpt_login(self):
         self.call_api("/api/v1/transactions", "POST", {
             "kind": "expense", "description": "Mercado", "amount": "25,00",

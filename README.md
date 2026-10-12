@@ -26,8 +26,8 @@ O banco padrão fica em `data/financas.db` e é criado na primeira execução. *
 - Visões **Pessoal**, **PJ** e **Tudo**. Transferências identificadas entre contas próprias não duplicam a receita consolidada.
 - Importação de faturas PDF de cartão e extratos CSV/OFX, com prévia e proteção contra importação repetida.
 - Histórico de faturas por mês, banco e cartão.
-- Gráficos de entradas e saídas, faturas, saldos e gastos por categoria em barras horizontais mensais, gerados dinamicamente a partir da API. Meses sem extrato não são apresentados como saldo zero.
-- Compras por categoria, com sugestões opcionais por IA que precisam de confirmação antes de serem salvas. Categorias confirmadas são lembradas localmente para compras com a mesma descrição.
+- Gráficos de entradas e saídas, faturas, saldos e gastos por categoria em barras horizontais mensais, gerados dinamicamente a partir da API. Barras e pontos mostram os valores ao passar o mouse ou usar o teclado; a legenda do gráfico mensal destaca uma categoria em todos os meses. Meses sem extrato não são apresentados como saldo zero.
+- Compras da conta/débito e do cartão de crédito por categoria, com filtros para gerar sugestões opcionais por IA. As sugestões precisam de confirmação antes de serem salvas. Categorias confirmadas são lembradas localmente para compras com a mesma descrição.
 - Registro manual de compras no cartão, vinculado ao mês da fatura.
 
 As **saídas das contas** incluem pagamentos de fatura. As compras feitas no cartão aparecem na data da compra e no histórico da fatura, sem serem somadas novamente ao fluxo de caixa. Transferências internas e cashback identificados ficam fora da receita consolidada. Confira as marcações após importar novos formatos de extrato.
@@ -44,11 +44,11 @@ Se a fatura atual ainda não puder ser exportada, use **Adicionar compra à fatu
 
 ## Categorias com IA
 
-Clique em **Continuar com ChatGPT** na seção de categorias. O programa abre o login no navegador padrão; entre na sua conta e autorize o uso do plano. O retorno acontece em `http://127.0.0.1:<porta>/auth/callback`, no próprio servidor local. Depois, escolha o período, gere sugestões para até 40 compras, revise e clique em **Aplicar categorias**. O botão **Gerenciar uso** abre as configurações do ChatGPT. O uso compartilha os limites do seu plano; não usa a cobrança da API key.
+Clique em **Continuar com ChatGPT** na seção de categorias. O programa abre o login no navegador padrão; entre na sua conta e autorize o uso do plano. O retorno acontece em `http://127.0.0.1:<porta>/auth/callback`, no próprio servidor local. Depois, escolha o período e a forma de pagamento (**Conta / débito**, **Cartão de crédito** ou ambos), gere sugestões para até 40 compras, revise e clique em **Aplicar categorias**. A visão Pessoal/PJ/Tudo vale também para as sugestões. Se houver débitos PJ sem categoria enquanto a visão Pessoal estiver aberta, a tela oferece um atalho para a PJ. O botão **Gerenciar uso** abre as configurações do ChatGPT. O uso compartilha os limites do seu plano; não usa a cobrança da API key.
 
 Ao aplicar uma categoria, o app a associa localmente à descrição normalizada do estabelecimento, separadamente para Pessoal e PJ. Escritas manuais e correções feitas na edição de lançamentos também atualizam essa memória; categorias de compras já classificadas antes desta versão são aproveitadas na primeira inicialização. A mesma descrição usa a categoria aprendida nas próximas sugestões, identificada como **Aprendido com você** na prévia, e ainda pode ser corrigida antes de salvar. Descrições genéricas como “Pix” não geram regra. Isso é uma memória do app no SQLite, não um treinamento permanente do modelo.
 
-O quadro **Compras por categoria** permite alternar entre o mês selecionado e todo o histórico. Depois de aplicar categorias a todo o histórico, a tela passa a mostrar o total histórico nesse quadro. O gráfico mensal em barras horizontais mostra o valor total de cada mês e a participação de cada categoria; segue a visão Pessoal/PJ/Tudo e o período dos gráficos.
+O quadro **Compras por categoria** permite alternar entre o mês selecionado e todo o histórico. Depois de aplicar categorias a todo o histórico, a tela passa a mostrar o total histórico nesse quadro. O gráfico mensal em barras horizontais mostra o valor total de cada mês e a participação de cada categoria; segue a visão Pessoal/PJ/Tudo e o período dos gráficos. Clique em uma cor da legenda para destacar aquela categoria nos meses; clique de novo para mostrar todas.
 
 As credenciais OAuth ficam somente em `data/chatgpt-auth.json`, com permissão de leitura restrita, e a pasta `data/` é ignorada pelo Git. O aplicativo renova o token quando necessário e usa apenas um modelo autorizado para a conta conectada. Ao desconectar, ele revoga a sessão renovável quando a rede permite e apaga os tokens locais. O arquivo `.env` de versões anteriores continua ignorado pelo Git, mas **não é mais lido pelo programa**.
 
@@ -74,11 +74,11 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | POST | `/imports/inspect` | Identificar formato e colunas |
 | POST | `/imports/preview` | Validar lançamentos antes de salvar |
 | POST | `/imports` | Importar sem duplicar |
-| GET | `/categorization/status?scope=personal&month=AAAA-MM` | Estado da categorização |
+| GET | `/categorization/status?scope=personal&month=AAAA-MM&payment_type=account` | Estado da categorização e pendências por conta/cartão e Pessoal/PJ |
 | POST | `/auth/chatgpt/start` | Abrir autorização do ChatGPT |
 | GET | `/auth/callback` | Receber o retorno OAuth no servidor local |
 | POST | `/auth/chatgpt/disconnect` | Desconectar o ChatGPT |
-| POST | `/categorization/suggest` | Sugerir categorias sem salvar |
+| POST | `/categorization/suggest` | Sugerir categorias sem salvar; corpo aceita `scope`, `month` e `payment_type` (`all`, `account`, `credit`) |
 | POST | `/categorization/apply` | Salvar categorias revisadas |
 
 `scope` aceita `personal` e `business`; leituras de resumo e lista também aceitam `all`. As rotas de importação recebem JSON com `filename` e `content` para CSV/OFX ou `content_base64` para PDF, além de banco, tipo de conta e opções de importação. A tela monta esse JSON.

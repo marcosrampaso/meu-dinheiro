@@ -172,9 +172,13 @@ class FinanceHandler(BaseHTTPRequestHandler):
             return
         if path == API_PREFIX + "/categorization/status":
             month = query.get("month", [None])[0]
-            _, count = self.server.store.uncategorized_purchases(self._scope(query), month)
+            payment_type = query.get("payment_type", ["all"])[0]
+            _, count = self.server.store.uncategorized_purchases(
+                self._scope(query), month, payment_type=payment_type)
             self._json(HTTPStatus.OK, {**self.server.auth.status(),
-                                       "uncategorized_count": count, "categories": PURCHASE_CATEGORIES})
+                                       "uncategorized_count": count,
+                                       "pending_by_scope": self.server.store.uncategorized_breakdown(month),
+                                       "categories": PURCHASE_CATEGORIES})
             return
         if path.startswith(API_PREFIX + "/invoices/"):
             self._json(HTTPStatus.OK, {"items": self.server.store.invoice_items(
@@ -239,7 +243,8 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if path == API_PREFIX + "/categorization/suggest":
             data = self._read_json()
             rows, count = self.server.store.uncategorized_purchases(
-                data.get("scope", "personal"), data.get("month"))
+                data.get("scope", "personal"), data.get("month"),
+                payment_type=data.get("payment_type", "all"))
             learned = self.server.store.remembered_categories(rows)
             unknown = [row for row in rows if row["id"] not in learned]
             token, model = self.server.auth.inference_credentials() if unknown else ("", None)

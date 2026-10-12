@@ -1,13 +1,26 @@
 const SVG_NS = "http://www.w3.org/2000/svg";
-const chartColors = { income: "#2d9568", expense: "#e29564", invoice: "#5a7dc3", personal: "#2d9568", business: "#735bb8" };
+const chartColors = { income: "#00a87b", expense: "#ff6b56", invoice: "#5268f5", personal: "#00a87b", business: "#8658ed" };
 const categoryColors = {
-  "Transporte": "#256c53", "Alimentação": "#db8050", "Compras": "#647ac6",
-  "Outros": "#b45a81", "Mercado": "#a28b3d", "Viagens": "#4c91a8",
-  "Assinaturas": "#8668a9", "Saúde": "#719147", "Lazer": "#bd6a5d",
-  "Cuidados pessoais": "#5b8199", "Educação": "#947a62", "Moradia": "#b292c1",
-  "Serviços": "#678d79", "Impostos e taxas": "#b57597", "Importado": "#b5c0b6",
+  "Transporte": "#06a7d8", "Alimentação": "#ff714d", "Compras": "#5a67f2",
+  "Outros": "#e75d9b", "Mercado": "#e6a400", "Viagens": "#00a4a6",
+  "Assinaturas": "#9b5de5", "Saúde": "#48ae57", "Lazer": "#fa5371",
+  "Cuidados pessoais": "#3399ce", "Educação": "#bc7b27", "Moradia": "#b36ad8",
+  "Serviços": "#2ba889", "Impostos e taxas": "#ca5780", "Importado": "#9aa8b2",
 };
 let chartRequestId = 0;
+let selectedCategory = null;
+
+function chartInsight(id, message) {
+  document.getElementById(id).textContent = message;
+}
+
+function interactiveMark(node, message, insightId) {
+  node.setAttribute("tabindex", "0");
+  node.setAttribute("aria-label", message);
+  node.addEventListener("mouseenter", () => chartInsight(insightId, message));
+  node.addEventListener("focus", () => chartInsight(insightId, message));
+  node.addEventListener("click", () => chartInsight(insightId, message));
+}
 
 function svgNode(tag, attributes = {}, label = "") {
   const node = document.createElementNS(SVG_NS, tag);
@@ -22,7 +35,7 @@ function axisLabel(cents) {
 }
 
 function chartSvg(title) {
-  const svg = svgNode("svg", { viewBox: "0 0 640 260", role: "img", "aria-label": title, preserveAspectRatio: "xMidYMid meet" });
+  const svg = svgNode("svg", { viewBox: "0 0 640 260", role: "group", "aria-label": title, preserveAspectRatio: "xMidYMid meet" });
   svg.append(svgNode("title", {}, title));
   return svg;
 }
@@ -49,9 +62,10 @@ function emptyChart(target, message) {
   target.append(paragraph);
 }
 
-function drawBars(target, rows, title, series) {
+function drawBars(target, rows, title, series, insightId) {
   if (!rows.some(row => series.some(item => row[item.key] !== null))) {
     emptyChart(target, "Sem dados neste intervalo.");
+    chartInsight(insightId, "Sem dados neste intervalo.");
     return;
   }
   const svg = chartSvg(title);
@@ -68,10 +82,12 @@ function drawBars(target, rows, title, series) {
       const height = Math.max(1.5, value / topValue * 177);
       const rect = svgNode("rect", {
         x: center + (itemIndex - (series.length - 1) / 2) * (width + 4) - width / 2,
-        y: 205 - height, width, height, rx: 3, fill: item.color,
+        y: 205 - height, width, height, rx: 5, fill: item.color, class: "chart-bar",
         opacity: row.coverage === "partial" ? .72 : 1,
       });
-      rect.append(svgNode("title", {}, `${row.month}: ${item.label} ${money.format(value / 100)}${row.coverage === "partial" ? " (extrato parcial)" : ""}`));
+      const message = `${monthLabel(row.month)}/${row.month.slice(2, 4)} · ${item.label}: ${money.format(value / 100)}${row.coverage === "partial" ? " · extrato parcial" : ""}`;
+      interactiveMark(rect, message, insightId);
+      rect.append(svgNode("title", {}, message));
       svg.append(rect);
     });
     if (rows.length <= 12 || index % Math.ceil(rows.length / 12) === 0) {
@@ -80,12 +96,14 @@ function drawBars(target, rows, title, series) {
     }
   });
   target.replaceChildren(svg);
+  chartInsight(insightId, "Passe o mouse ou selecione uma barra para ver o valor.");
 }
 
 function drawBalances(target, series) {
   const points = series.flatMap(item => item.points);
   if (!points.length) {
     emptyChart(target, "Importe um extrato de conta com coluna de saldo para ver a evolução.");
+    chartInsight("balance-insight", "Sem saldos neste intervalo.");
     return;
   }
   const dates = points.map(point => point.date).sort();
@@ -104,16 +122,19 @@ function drawBalances(target, series) {
   series.forEach(item => {
     const color = chartColors[item.scope];
     const path = item.points.map((point, index) => `${index ? "L" : "M"}${x(point.date).toFixed(1)},${y(point.amount_cents).toFixed(1)}`).join(" ");
-    svg.append(svgNode("path", { d: path, fill: "none", stroke: color, "stroke-width": 3, "stroke-linejoin": "round" }));
+    svg.append(svgNode("path", { d: path, fill: "none", stroke: color, "stroke-width": 3.5, "stroke-linejoin": "round", class: "chart-line" }));
     item.points.forEach(point => {
-      const marker = svgNode("circle", { cx: x(point.date), cy: y(point.amount_cents), r: 4, fill: color, stroke: "white", "stroke-width": 1.5 });
-      marker.append(svgNode("title", {}, `${item.source} · ${formatDate(point.date)} · ${money.format(point.amount_cents / 100)}`));
+      const marker = svgNode("circle", { cx: x(point.date), cy: y(point.amount_cents), r: 6, fill: color, stroke: "white", "stroke-width": 2, class: "chart-point" });
+      const message = `${item.source} · ${formatDate(point.date)} · ${money.format(point.amount_cents / 100)}`;
+      interactiveMark(marker, message, "balance-insight");
+      marker.append(svgNode("title", {}, message));
       svg.append(marker);
     });
   });
   svg.append(svgNode("text", { x: 78, y: 234, class: "chart-axis-text" }, formatDate(dates[0])));
   svg.append(svgNode("text", { x: 620, y: 234, "text-anchor": "end", class: "chart-axis-text" }, formatDate(dates[dates.length - 1])));
   target.replaceChildren(svg);
+  chartInsight("balance-insight", "Passe o mouse ou selecione um ponto para ver o saldo do dia.");
 }
 
 function renderChartLegend(series) {
@@ -128,6 +149,21 @@ function renderChartLegend(series) {
   }
 }
 
+function highlightCategory(name, totals) {
+  selectedCategory = name;
+  for (const segment of document.querySelectorAll(".category-month-segment")) {
+    segment.classList.toggle("is-muted", Boolean(name) && segment.dataset.category !== name);
+    segment.classList.toggle("is-selected", Boolean(name) && segment.dataset.category === name);
+  }
+  for (const button of document.querySelectorAll(".category-legend-button")) {
+    button.setAttribute("aria-pressed", String(button.dataset.category === name));
+    button.classList.toggle("is-selected", button.dataset.category === name);
+  }
+  chartInsight("category-month-insight", name
+    ? `${name} · ${money.format(totals.get(name) / 100)} no período. Toque novamente para mostrar todas.`
+    : "Toque em uma categoria ou em uma parte da barra para explorar os gastos.");
+}
+
 function drawCategorySpending(rows) {
   const target = document.querySelector("#category-month-chart");
   const legend = document.querySelector("#category-month-legend");
@@ -135,6 +171,8 @@ function drawCategorySpending(rows) {
   legend.replaceChildren();
   if (!rows.some(row => row.total_cents > 0)) {
     emptyChart(target, "Sem compras registradas neste período.");
+    selectedCategory = null;
+    chartInsight("category-month-insight", "Sem compras registradas neste período.");
     return;
   }
   const totals = new Map();
@@ -144,7 +182,7 @@ function drawCategorySpending(rows) {
     }
   }
   const names = [...totals.keys()].sort((a, b) => totals.get(b) - totals.get(a) || a.localeCompare(b));
-  const colors = new Map(names.map(name => [name, categoryColors[name] || "#8293a0"]));
+  const colors = new Map(names.map(name => [name, categoryColors[name] || "#5975e2"]));
   const maximum = Math.max(...rows.map(row => row.total_cents));
   for (const row of rows) {
     const line = document.createElement("div");
@@ -159,13 +197,19 @@ function drawCategorySpending(rows) {
       bar.className = "category-month-bar";
       bar.style.width = `${100 * row.total_cents / maximum}%`;
       for (const item of row.categories) {
-        const segment = document.createElement("span");
+        const segment = document.createElement("button");
+        segment.type = "button";
         segment.className = "category-month-segment";
+        segment.dataset.category = item.category;
         segment.style.width = `${100 * item.amount_cents / row.total_cents}%`;
         segment.style.backgroundColor = colors.get(item.category);
-        segment.title = `${item.category}: ${money.format(item.amount_cents / 100)} em ${row.month}`;
+        const share = Math.round(100 * item.amount_cents / row.total_cents);
+        segment.title = `${item.category} · ${monthLabel(row.month)}/${row.month.slice(2, 4)} · ${money.format(item.amount_cents / 100)} · ${share}% do mês`;
         segment.setAttribute("aria-label", segment.title);
-        segment.tabIndex = 0;
+        segment.addEventListener("mouseenter", () => chartInsight("category-month-insight", segment.title));
+        segment.addEventListener("focus", () => chartInsight("category-month-insight", segment.title));
+        segment.addEventListener("mouseleave", () => highlightCategory(selectedCategory, totals));
+        segment.addEventListener("click", () => highlightCategory(selectedCategory === item.category ? null : item.category, totals));
         bar.append(segment);
       }
       track.append(bar);
@@ -180,12 +224,22 @@ function drawCategorySpending(rows) {
     target.append(line);
   }
   for (const name of names) {
-    const label = document.createElement("span");
+    const label = document.createElement("button");
+    label.type = "button";
+    label.className = "category-legend-button";
+    label.dataset.category = name;
+    label.setAttribute("aria-pressed", String(selectedCategory === name));
+    label.setAttribute("aria-label", `${name}: ${money.format(totals.get(name) / 100)} no período`);
     const swatch = document.createElement("i");
     swatch.style.backgroundColor = colors.get(name);
     label.append(swatch, document.createTextNode(name));
+    label.addEventListener("click", () => highlightCategory(selectedCategory === name ? null : name, totals));
+    label.addEventListener("mouseenter", () => chartInsight("category-month-insight", `${name} · ${money.format(totals.get(name) / 100)} no período`));
+    label.addEventListener("focus", () => chartInsight("category-month-insight", `${name} · ${money.format(totals.get(name) / 100)} no período`));
+    label.addEventListener("mouseleave", () => highlightCategory(selectedCategory, totals));
     legend.append(label);
   }
+  highlightCategory(totals.has(selectedCategory) ? selectedCategory : null, totals);
 }
 
 async function refreshCharts() {
@@ -199,7 +253,7 @@ async function refreshCharts() {
     drawBars(document.querySelector("#cashflow-chart"), data.cashflow, "Entradas e saídas por mês", [
       { key: "income_cents", label: "Entradas", color: chartColors.income },
       { key: "expense_cents", label: "Saídas", color: chartColors.expense },
-    ]);
+    ], "cashflow-insight");
     const partial = data.cashflow.filter(row => row.coverage === "partial")
       .map(row => `${row.month.slice(5)}/${row.month.slice(0, 4)}`);
     document.querySelector("#cashflow-note").textContent = partial.length
@@ -207,7 +261,7 @@ async function refreshCharts() {
       : "Meses sem extrato não aparecem como zero.";
     drawBars(document.querySelector("#invoice-chart"), data.invoices, "Faturas por mês", [
       { key: "total_cents", label: "Fatura", color: chartColors.invoice },
-    ]);
+    ], "invoice-insight");
     drawCategorySpending(data.category_spending);
     document.querySelector("#invoice-chart-note").textContent = "O mês corresponde à fatura; as compras não são somadas novamente às saídas da conta.";
     drawBalances(document.querySelector("#balance-chart"), data.balance_series);
@@ -218,6 +272,7 @@ async function refreshCharts() {
     for (const id of ["cashflow-chart", "invoice-chart", "category-month-chart", "balance-chart"]) {
       emptyChart(document.getElementById(id), "Não foi possível carregar o gráfico.");
     }
+    for (const id of ["cashflow-insight", "invoice-insight", "category-month-insight", "balance-insight"]) chartInsight(id, "Dados indisponíveis.");
     document.querySelector("#category-month-legend").replaceChildren();
     showNotice(error.message, true);
   }

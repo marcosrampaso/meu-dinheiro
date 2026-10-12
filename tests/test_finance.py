@@ -215,6 +215,29 @@ class FinanceStoreTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             self.store.apply_purchase_categories([{"id": account["id"], "category": "Inexistente"}])
 
+    def test_uncategorized_filter_separates_account_and_credit_across_scopes(self):
+        account = self.store.add(transaction(description="Débito pessoal", category="Importado"))
+        business = self.store.add(transaction(description="Débito PJ", category="Importado", scope="business"))
+        card = self.store.add_card_purchase({
+            "bank": "inter", "account": "principal", "scope": "personal",
+            "invoice_month": "2026-11", "occurred_on": "2026-10-09",
+            "description": "Compra cartão", "amount": "20,00", "category": "Importado",
+        })
+        self.assertEqual([row["id"] for row in self.store.uncategorized_purchases(
+            "personal", "2026-10", payment_type="account")[0]], [account["id"]])
+        self.assertEqual([row["id"] for row in self.store.uncategorized_purchases(
+            "personal", "2026-10", payment_type="credit")[0]], [card["id"]])
+        self.assertEqual(self.store.uncategorized_purchases(
+            "all", "2026-10", payment_type="account")[1], 2)
+        self.assertEqual(self.store.uncategorized_breakdown("2026-10"), {
+            "personal": {"account": 1, "credit": 1},
+            "business": {"account": 1, "credit": 0},
+        })
+        self.store.apply_purchase_categories([{"id": business["id"], "category": "Serviços"}], "business")
+        self.assertEqual(self.store.uncategorized_breakdown("2026-10")["business"]["account"], 0)
+        with self.assertRaises(ValidationError):
+            self.store.uncategorized_purchases(payment_type="cash")
+
     def test_approved_category_is_remembered_by_merchant_and_scope(self):
         first = self.store.add(transaction(description="RESTAURANTE EXEMPLO 123456", category="Importado"))
         self.assertEqual(self.store.apply_purchase_categories([

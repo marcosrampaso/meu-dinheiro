@@ -578,18 +578,22 @@ class FinanceStore:
         return [dict(row) for row in rows]
 
     def uncategorized_purchases(self, scope: str = "personal", month: str | None = None,
-                                limit: int = 40) -> tuple[list[dict], int]:
+                                limit: int = 40, payment_type: str = "all") -> tuple[list[dict], int]:
         scope = validate_scope(scope, allow_all=True)
         if month is not None:
             month = validate_month(month)
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 40:
             raise ValidationError("Selecione até 40 compras por vez.")
+        if payment_type not in ("all", "account", "credit"):
+            raise ValidationError("Tipo de compra inválido.")
         start = month + "-01" if month else None
         end = _next_month(month) + "-01" if month else None
         conditions = ("kind = 'expense' AND excluded = 0 AND category = 'Importado' "
                       "AND (? = 'all' OR scope = ?) "
-                      "AND (? IS NULL OR (occurred_on >= ? AND occurred_on < ?))")
-        params = (scope, scope, month, start, end)
+                      "AND (? IS NULL OR (occurred_on >= ? AND occurred_on < ?)) "
+                      "AND (? = 'all' OR (? = 'account' AND invoice_month IS NULL) "
+                      "OR (? = 'credit' AND invoice_month IS NOT NULL))")
+        params = (scope, scope, month, start, end, payment_type, payment_type, payment_type)
         with self._connect() as connection:
             count = connection.execute(f"SELECT COUNT(*) FROM transactions WHERE {conditions}", params).fetchone()[0]
             rows = connection.execute(
@@ -598,6 +602,25 @@ class FinanceStore:
                 (*params, limit),
             ).fetchall()
         return [dict(row) for row in rows], count
+
+    def uncategorized_breakdown(self, month: str | None = None) -> dict:
+        if month is not None:
+            month = validate_month(month)
+        start = month + "-01" if month else None
+        end = _next_month(month) + "-01" if month else None
+        result = {scope: {"account": 0, "credit": 0} for scope in ("personal", "business")}
+        with self._connect() as connection:
+            rows = connection.execute("""
+                SELECT scope, CASE WHEN invoice_month IS NULL THEN 'account' ELSE 'credit' END AS payment_type,
+                    COUNT(*) AS count
+                FROM transactions
+                WHERE kind = 'expense' AND excluded = 0 AND category = 'Importado'
+                    AND (? IS NULL OR (occurred_on >= ? AND occurred_on < ?))
+                GROUP BY scope, payment_type
+            """, (month, start, end)).fetchall()
+        for row in rows:
+            result[row["scope"]][row["payment_type"]] = row["count"]
+        return result
 
     def apply_purchase_categories(self, suggestions: list[dict], scope: str = "personal") -> dict:
         scope = validate_scope(scope, allow_all=True)

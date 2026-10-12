@@ -1,5 +1,7 @@
 const categoryRange = document.querySelector("#categorization-range");
+const categoryType = document.querySelector("#categorization-type");
 const categoryStatus = document.querySelector("#categorization-status");
+const categoryScopeHint = document.querySelector("#categorization-scope-hint");
 const categoryPreview = document.querySelector("#categorization-preview");
 const categoryList = document.querySelector("#categorization-list");
 const suggestButton = document.querySelector("#suggest-categories");
@@ -35,8 +37,9 @@ async function refreshCategoryStatus() {
   const requestId = ++statusRequestId;
   const month = categoryMonth();
   const scope = scopeInput.value;
+  const paymentType = categoryType.value;
   try {
-    const suffix = `?scope=${encodeURIComponent(scope)}${month ? `&month=${encodeURIComponent(month)}` : ""}`;
+    const suffix = `?scope=${encodeURIComponent(scope)}&payment_type=${encodeURIComponent(paymentType)}${month ? `&month=${encodeURIComponent(month)}` : ""}`;
     const data = await request(`/categorization/status${suffix}`);
     if (requestId !== statusRequestId) return;
     categoryChoices = data.categories;
@@ -55,14 +58,24 @@ async function refreshCategoryStatus() {
       stopConnectionPoll();
     }
     categoryStatus.classList.remove("error");
+    const personal = data.pending_by_scope.personal;
+    const business = data.pending_by_scope.business;
+    const pendingInOtherScope = scope === "personal" && business.account > 0;
+    categoryScopeHint.hidden = !pendingInOtherScope;
+    if (pendingInOtherScope) document.querySelector("#categorization-scope-hint-text").textContent =
+      `Também há ${business.account} ${business.account === 1 ? "compra" : "compras"} da conta PJ sem categoria.`;
+    const current = scope === "business" ? business : scope === "personal" ? personal :
+      { account: personal.account + business.account, credit: personal.credit + business.credit };
+    const breakdown = `Pendentes nesta visão: ${current.account} da conta/débito · ${current.credit} do cartão de crédito`;
     categoryStatus.textContent = !data.connected
-      ? `${data.uncategorized_count} compras sem categoria. Conecte o ChatGPT para começar.`
+      ? `${data.uncategorized_count} compras sem categoria neste filtro. ${breakdown}. Conecte o ChatGPT para gerar sugestões.`
       : data.uncategorized_count
-        ? `${data.uncategorized_count} compras sem categoria · até 40 sugestões por vez${data.model ? ` · ${data.model}` : ""}.`
-        : "Todas as compras deste período já têm categoria.";
+        ? `${data.uncategorized_count} compras sem categoria neste filtro. ${breakdown} · até 40 sugestões por vez${data.model ? ` · ${data.model}` : ""}.`
+        : `Todas as compras deste filtro já têm categoria. ${breakdown}.`;
   } catch (error) {
     if (requestId !== statusRequestId) return;
     suggestButton.disabled = true;
+    categoryScopeHint.hidden = true;
     categoryStatus.classList.add("error");
     categoryStatus.textContent = error.message;
   }
@@ -136,7 +149,7 @@ function renderCategorySuggestions(items, remainingCount) {
     const name = document.createElement("strong");
     name.textContent = item.description;
     const meta = document.createElement("small");
-    meta.textContent = `${formatDate(item.occurred_on)} · ${money.format(item.amount_cents / 100)} · ${item.invoice_month ? "Cartão" : "Conta"} · ${item.suggestion_source === "learned" ? "Aprendido com você" : "Sugestão da IA"}`;
+    meta.textContent = `${formatDate(item.occurred_on)} · ${money.format(item.amount_cents / 100)} · ${item.invoice_month ? "Cartão de crédito" : "Conta / débito"} · ${item.scope === "business" ? "PJ" : "Pessoal"} · ${item.suggestion_source === "learned" ? "Aprendido com você" : "Sugestão da IA"}`;
     details.append(name, meta);
     const select = document.createElement("select");
     select.setAttribute("aria-label", `Categoria de ${item.description}`);
@@ -157,7 +170,7 @@ function renderCategorySuggestions(items, remainingCount) {
 
 suggestButton.addEventListener("click", async () => {
   clearCategoryPreview();
-  const context = { scope: scopeInput.value, month: categoryMonth() };
+  const context = { scope: scopeInput.value, month: categoryMonth(), payment_type: categoryType.value };
   let failed = false;
   suggestButton.disabled = true;
   categoryStatus.classList.remove("error");
@@ -166,7 +179,7 @@ suggestButton.addEventListener("click", async () => {
     const result = await request("/categorization/suggest", {
       method: "POST", body: JSON.stringify(context),
     });
-    if (context.scope !== scopeInput.value || context.month !== categoryMonth()) return;
+    if (context.scope !== scopeInput.value || context.month !== categoryMonth() || context.payment_type !== categoryType.value) return;
     if (result.items.length) {
       previewContext = context;
       renderCategorySuggestions(result.items, result.remaining_count);
@@ -185,7 +198,7 @@ suggestButton.addEventListener("click", async () => {
 });
 
 applyButton.addEventListener("click", async () => {
-  if (!previewContext || previewContext.scope !== scopeInput.value || previewContext.month !== categoryMonth()) {
+  if (!previewContext || previewContext.scope !== scopeInput.value || previewContext.month !== categoryMonth() || previewContext.payment_type !== categoryType.value) {
     clearCategoryPreview();
     return;
   }
@@ -220,6 +233,13 @@ document.querySelector("#cancel-categories").addEventListener("click", () => {
   refreshCategoryStatus();
 });
 categoryRange.addEventListener("change", () => { clearCategoryPreview(); refreshCategoryStatus(); });
+categoryType.addEventListener("change", () => { clearCategoryPreview(); refreshCategoryStatus(); });
+document.querySelector("#categorization-switch-pj").addEventListener("click", () => {
+  categoryType.value = "account";
+  scopeInput.value = "business";
+  scopeInput.dispatchEvent(new Event("change"));
+  document.querySelector("#ai-categories-title").scrollIntoView({ block: "center", behavior: "smooth" });
+});
 document.addEventListener("finance-data-change", () => { clearCategoryPreview(); refreshCategoryStatus(); });
 document.addEventListener("finance-view-resume", () => { if (!previewContext) refreshCategoryStatus(); });
 refreshCategoryStatus();
