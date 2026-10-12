@@ -87,6 +87,19 @@ class ApiTests(unittest.TestCase):
         status, _ = self.call_api("/api/v1/summary?month=2026-10", headers={"Host": "other.example"})
         self.assertEqual(status, 403)
 
+    def test_manual_card_purchase_appears_in_invoice_without_cash_expense(self):
+        data = {"bank": "inter", "account": "principal", "invoice_month": "2026-10",
+                "occurred_on": "2026-10-09", "description": "Mercado", "amount": "23,50",
+                "category": "Mercado"}
+        status, created = self.call_api("/api/v1/card-purchases", "POST", data)
+        self.assertEqual(status, 201)
+        self.assertEqual(created["invoice_month"], "2026-10")
+        status, summary = self.call_api("/api/v1/summary?month=2026-10")
+        self.assertEqual((status, summary["expense_cents"], summary["card_purchases_cents"]),
+                         (200, 0, 2350))
+        status, invoices = self.call_api("/api/v1/invoices")
+        self.assertEqual((status, invoices["items"][0]["expense_cents"]), (200, 2350))
+
     def test_home_page_is_served(self):
         status, body = self.call_api("/")
         self.assertEqual(status, 200)

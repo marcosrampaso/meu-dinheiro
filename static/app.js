@@ -168,7 +168,8 @@ function startEdit(item) {
   form.elements.occurred_on.value = item.occurred_on;
   form.elements.excluded.checked = Boolean(item.excluded);
   form.elements.scope.value = item.scope;
-  document.querySelector("#form-title").textContent = "Editar lançamento";
+  document.querySelector("#form-title").textContent = item.invoice_month
+    ? `Editar compra da fatura ${item.invoice_month}` : "Editar lançamento";
   document.querySelector("#save-button").textContent = "Salvar alterações";
   document.querySelector("#cancel-button").hidden = false;
   form.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -180,7 +181,7 @@ async function deleteItem(item) {
   try {
     await request(`/transactions/${item.id}`, { method: "DELETE" });
     if (editingId === item.id) resetForm();
-    await refresh();
+    await Promise.all([refresh(), refreshInvoices()]);
     showNotice("Lançamento excluído.");
   } catch (error) {
     showNotice(error.message, true);
@@ -208,7 +209,7 @@ form.addEventListener("submit", async (event) => {
     monthInput.value = data.occurred_on.slice(0, 7);
     scopeInput.value = data.scope;
     resetForm();
-    await refresh();
+    await Promise.all([refresh(), refreshInvoices()]);
     showNotice("Lançamento salvo.");
   } catch (error) {
     showNotice(error.message, true);

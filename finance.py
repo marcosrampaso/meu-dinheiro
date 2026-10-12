@@ -24,6 +24,7 @@ PURCHASE_CATEGORIES = (
     "Lazer", "Compras", "Assinaturas", "Viagens", "Cuidados pessoais",
     "Impostos e taxas", "Serviços", "Outros",
 )
+CARD_BANKS = {"inter": "Inter", "bb": "Banco do Brasil"}
 
 
 def parse_amount(value: str) -> int:
@@ -192,6 +193,32 @@ class FinanceStore:
             cursor = connection.execute(
                 "INSERT INTO transactions (kind, description, category, amount_cents, occurred_on, excluded, scope) "
                 "VALUES (:kind, :description, :category, :amount_cents, :occurred_on, :excluded, :scope)", item,
+            )
+            transaction_id = cursor.lastrowid
+        return self.get(transaction_id)
+
+    def add_card_purchase(self, data: dict) -> dict:
+        if not isinstance(data, dict):
+            raise ValidationError("Dados da compra inválidos.")
+        bank = data.get("bank")
+        account = data.get("account")
+        if not isinstance(bank, str) or bank not in CARD_BANKS:
+            raise ValidationError("Escolha Inter ou Banco do Brasil.")
+        if not isinstance(account, str) or not 1 <= len(account.strip()) <= 50:
+            raise ValidationError("Identifique o cartão com até 50 caracteres.")
+        invoice_month = validate_month(data.get("invoice_month"))
+        item = validate_transaction({**data, "kind": "expense", "excluded": False})
+        if invoice_month < item["occurred_on"][:7]:
+            raise ValidationError("O mês da fatura não pode ser anterior à compra.")
+        if item["category"] == "Pagamento de fatura":
+            raise ValidationError("Escolha uma categoria de compra para o cartão.")
+        source = f"{CARD_BANKS[bank]} · {account.strip()}"
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "INSERT INTO transactions (kind, description, category, amount_cents, occurred_on, "
+                "excluded, source, invoice_month, scope) VALUES (:kind, :description, :category, :amount_cents, "
+                ":occurred_on, :excluded, :source, :invoice_month, :scope)",
+                {**item, "source": source, "invoice_month": invoice_month},
             )
             transaction_id = cursor.lastrowid
         return self.get(transaction_id)

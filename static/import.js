@@ -245,7 +245,7 @@ async function refreshInvoices() {
     if (!result.items.length) {
       const empty = document.createElement("p");
       empty.className = "empty";
-      empty.textContent = "Nenhuma fatura PDF importada ainda.";
+      empty.textContent = "Nenhuma fatura registrada ainda.";
       list.append(empty);
       return;
     }

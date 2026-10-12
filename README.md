@@ -26,6 +26,7 @@ O banco padrão fica em `data/financas.db` e é criado na primeira execução. *
 - Histórico de faturas por mês, banco e cartão.
 - Gráficos de entradas e saídas, faturas e saldos gerados dinamicamente a partir da API. Meses sem extrato não são apresentados como saldo zero.
 - Compras por categoria, com sugestões opcionais por IA que precisam de confirmação antes de serem salvas.
+- Registro manual de compras no cartão, vinculado ao mês da fatura.
 
 As **saídas das contas** incluem pagamentos de fatura. As compras feitas no cartão aparecem na data da compra e no histórico da fatura, sem serem somadas novamente ao fluxo de caixa. Transferências internas e cashback identificados ficam fora da receita consolidada. Confira as marcações após importar novos formatos de extrato.
 
@@ -36,6 +37,8 @@ Na seção **Trazer extrato do banco**, escolha Inter ou Banco do Brasil, o tipo
 Para faturas PDF, é possível selecionar vários arquivos do mesmo banco e cartão. Confirme o mês de cada fatura, veja a prévia e só então importe. O leitor funciona com PDFs que contêm texto selecionável; PDFs digitalizados como imagem ainda precisam de OCR. O formato do Inter é conferido contra o total impresso na fatura quando disponível. **O layout de faturas do BB ainda não foi validado com uma amostra real; confira cuidadosamente a prévia e a soma antes de confirmar.** PDFs protegidos por AES podem exigir o pacote opcional `cryptography` no ambiente Python.
 
 Para extratos CSV/OFX, selecione um arquivo por vez. Em CSV, confira o mapeamento de data, descrição e valor e o sinal das despesas. O arquivo original e a senha não são armazenados; somente os lançamentos importados ficam no SQLite. Os limites são 5 MB por PDF ou 2 MB por CSV/OFX, com até 5.000 lançamentos por arquivo.
+
+Se a fatura atual ainda não puder ser exportada, use **Adicionar compra à fatura**. Escolha banco, área e o mesmo nome de cartão usado nas faturas anteriores; informe data, valor, descrição, categoria e mês da fatura. A compra aparece no histórico e nos gráficos do cartão, mas não altera o saldo da conta corrente. Se importar o PDF dessa fatura depois, confira e exclua lançamentos repetidos.
 
 ## Categorias com IA
 
@@ -54,6 +57,7 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | GET | `/transactions?month=AAAA-MM&scope=business` | Lista de lançamentos |
 | GET | `/transactions/{id}` | Um lançamento |
 | POST | `/transactions` | Criar lançamento |
+| POST | `/card-purchases` | Registrar compra manual na fatura |
 | PUT | `/transactions/{id}` | Atualizar lançamento |
 | DELETE | `/transactions/{id}` | Excluir lançamento |
 | GET | `/invoices?scope=personal` | Faturas importadas |

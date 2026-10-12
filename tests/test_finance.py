@@ -45,6 +45,36 @@ class FinanceStoreTests(unittest.TestCase):
         with self.assertRaises(NotFoundError):
             self.store.get(first["id"])
 
+    def test_manual_card_purchase_uses_invoice_month_without_changing_cash_flow(self):
+        purchase = self.store.add_card_purchase({
+            "bank": "inter", "account": "cartão principal", "scope": "personal",
+            "invoice_month": "2026-10", "occurred_on": "2026-09-30",
+            "description": "Livraria", "amount": "50,00", "category": "Educação",
+        })
+        self.assertEqual(purchase["source"], "Inter · cartão principal")
+        self.assertEqual(purchase["invoice_month"], "2026-10")
+        self.assertIsNone(purchase["import_key"])
+        self.assertEqual(self.store.summary("2026-09")["expense_cents"], 0)
+        self.assertEqual(self.store.summary("2026-09")["card_purchases_cents"], 5000)
+        self.assertEqual(self.store.summary("2026-10")["card_purchases_cents"], 0)
+        self.assertEqual(self.store.invoice_history()[0]["expense_cents"], 5000)
+        self.assertEqual(self.store.analytics("2026-10")["invoices"][-1]["total_cents"], 5000)
+        updated = self.store.update(purchase["id"], transaction(
+            description="Livraria", amount="60,00", category="Educação", occurred_on="2026-09-30"))
+        self.assertEqual(updated["invoice_month"], "2026-10")
+        self.assertEqual(self.store.invoice_history()[0]["expense_cents"], 6000)
+        self.store.delete(purchase["id"])
+        self.assertEqual(self.store.invoice_history(), [])
+
+    def test_manual_card_purchase_requires_valid_card_and_invoice(self):
+        base = {"bank": "inter", "account": "principal", "invoice_month": "2026-10",
+                "occurred_on": "2026-10-10", "description": "Mercado", "amount": "10,00",
+                "category": "Mercado"}
+        for changes in ({"bank": "other"}, {"account": " "}, {"invoice_month": "2026-13"},
+                        {"invoice_month": "2026-09"}, {"category": "Pagamento de fatura"}):
+            with self.subTest(changes=changes), self.assertRaises(ValidationError):
+                self.store.add_card_purchase({**base, **changes})
+
     def test_summary_calculates_income_expenses_balance_and_categories(self):
         self.store.add(transaction(kind="income", description="Salário", amount="3000,00", category="Salário"))
         self.store.add(transaction(amount="100,00"))

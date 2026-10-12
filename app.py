@@ -27,6 +27,7 @@ STATIC_FILES = {
     "/import.js": (BASE_DIR / "static" / "import.js", "text/javascript; charset=utf-8"),
     "/charts.js": (BASE_DIR / "static" / "charts.js", "text/javascript; charset=utf-8"),
     "/categories.js": (BASE_DIR / "static" / "categories.js", "text/javascript; charset=utf-8"),
+    "/manual-card.js": (BASE_DIR / "static" / "manual-card.js", "text/javascript; charset=utf-8"),
 }
 API_PREFIX = "/api/v1"
 
@@ -174,6 +175,9 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if not self._require_same_origin():
             return
         path, _ = self._route()
+        if path == API_PREFIX + "/card-purchases":
+            self._json(HTTPStatus.CREATED, self.server.store.add_card_purchase(self._read_json()))
+            return
         if path == API_PREFIX + "/imports/inspect":
             data = self._read_json(8_000_000)
             self._json(HTTPStatus.OK, inspect_import(

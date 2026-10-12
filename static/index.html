@@ -10,6 +10,7 @@
   <script src="/import.js" defer></script>
   <script src="/charts.js" defer></script>
   <script src="/categories.js" defer></script>
+  <script src="/manual-card.js" defer></script>
 </head>
 <body>
   <div class="shell">
@@ -44,7 +45,7 @@
         <div class="charts-heading"><div><p class="eyebrow">EVOLUÇÃO</p><h2 id="charts-title">Seus números ao longo do tempo</h2><p>Os gráficos acompanham a visão e o mês selecionados.</p></div><label class="chart-period">Período <select id="chart-months" aria-label="Período dos gráficos"><option value="6">6 meses</option><option value="12">12 meses</option><option value="24">24 meses</option></select></label></div>
         <div class="charts-grid">
           <article class="panel chart-panel" aria-labelledby="cashflow-title"><div class="panel-header"><div><h3 id="cashflow-title">Entradas e saídas</h3><p>Movimento das contas, sem transferências internas</p></div></div><div id="cashflow-chart" class="chart-area" aria-live="polite"></div><div class="chart-legend"><span><i class="legend-income"></i>Entradas</span><span><i class="legend-expense"></i>Saídas</span></div><p id="cashflow-note" class="chart-note"></p></article>
-          <article class="panel chart-panel" aria-labelledby="invoice-chart-title"><div class="panel-header"><div><h3 id="invoice-chart-title">Faturas do cartão</h3><p>Total por mês da fatura importada</p></div></div><div id="invoice-chart" class="chart-area" aria-live="polite"></div><p id="invoice-chart-note" class="chart-note"></p></article>
+          <article class="panel chart-panel" aria-labelledby="invoice-chart-title"><div class="panel-header"><div><h3 id="invoice-chart-title">Faturas do cartão</h3><p>Total por mês da fatura registrada</p></div></div><div id="invoice-chart" class="chart-area" aria-live="polite"></div><p id="invoice-chart-note" class="chart-note"></p></article>
           <article class="panel chart-panel chart-wide" aria-labelledby="balance-chart-title"><div class="panel-header"><div><h3 id="balance-chart-title">Saldo das contas</h3><p>Saldo registrado nos dias disponíveis em cada extrato</p></div></div><div id="balance-chart" class="chart-area" aria-live="polite"></div><div id="balance-chart-legend" class="chart-legend"></div><p id="balance-chart-note" class="chart-note"></p></article>
         </div>
       </section>
@@ -85,7 +86,7 @@
 
       <section class="panel import-panel" aria-labelledby="import-title">
         <div class="panel-header"><div><p class="eyebrow">IMPORTAÇÃO</p><h2 id="import-title">Trazer extrato do banco</h2></div></div>
-        <p class="panel-intro">Selecione faturas PDF ou extratos CSV/OFX do Inter ou do Banco do Brasil. Você pode selecionar várias faturas PDF do mesmo banco e cartão de uma vez. Confira a prévia antes de salvar.</p>
+        <p class="panel-intro">Selecione faturas PDF ou extratos CSV/OFX do Inter ou do Banco do Brasil. Você pode selecionar várias faturas PDF do mesmo banco e cartão de uma vez. Confira a prévia antes de salvar. Sem PDF deste mês? <a href="#manual-card">Adicione as compras manualmente</a>.</p>
         <form id="import-form">
           <div class="import-fields">
             <label>Banco<select name="bank"><option value="inter">Inter</option><option value="bb">Banco do Brasil</option></select></label>
@@ -105,8 +106,28 @@
         <p class="import-tip">Pagamentos de fatura entram nas saídas do mês; compras do cartão aparecem separadamente, pela data da compra. Transferências entre suas contas, aplicações e cashback não contam como receita ou gasto. Confira a prévia antes de importar.</p>
       </section>
 
+      <section id="manual-card" class="panel manual-card-panel" aria-labelledby="manual-card-title">
+        <div class="panel-header"><div><p class="eyebrow">CARTÃO DE CRÉDITO</p><h2 id="manual-card-title">Adicionar compra à fatura</h2></div></div>
+        <p class="panel-intro">Registre uma compra por vez enquanto a fatura em PDF não estiver disponível. Use o mesmo nome de cartão das faturas já importadas.</p>
+        <form id="card-purchase-form">
+          <div class="import-fields">
+            <label>Banco<select name="bank"><option value="inter">Inter</option><option value="bb">Banco do Brasil</option></select></label>
+            <label>Área<select name="scope"><option value="personal">Pessoal</option><option value="business">PJ</option></select></label>
+            <label>Nome do cartão<input name="account" maxlength="50" list="known-card-accounts" placeholder="Ex.: cartão principal" required></label>
+            <datalist id="known-card-accounts"></datalist>
+            <label>Mês da fatura<input name="invoice_month" type="month" required></label>
+            <label>Data da compra<input name="occurred_on" type="date" required></label>
+            <label>Valor da compra (R$)<input name="amount" inputmode="decimal" placeholder="0,00" required></label>
+          </div>
+          <label>Descrição<input name="description" maxlength="120" placeholder="Ex.: supermercado" required></label>
+          <label>Categoria<input name="category" maxlength="60" list="categories" placeholder="Ex.: Mercado" required></label>
+          <div class="form-actions"><button id="save-card-purchase" class="primary-button" type="submit">Adicionar à fatura</button></div>
+        </form>
+        <p class="import-tip">A compra entra na fatura escolhida e nos gastos por categoria na data da compra. O saldo bancário muda apenas quando o pagamento aparecer no extrato da conta. Se importar a fatura em PDF depois, confira possíveis lançamentos repetidos.</p>
+      </section>
+
       <section class="panel invoice-panel" aria-labelledby="invoice-title">
-        <div class="panel-header"><div><p class="eyebrow">HISTÓRICO</p><h2 id="invoice-title">Faturas importadas</h2></div></div>
+        <div class="panel-header"><div><p class="eyebrow">HISTÓRICO</p><h2 id="invoice-title">Faturas registradas</h2></div></div>
         <div id="invoice-list"></div>
       </section>
 
