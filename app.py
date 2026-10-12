@@ -27,6 +27,7 @@ STATIC_FILES = {
     "/app.js": (BASE_DIR / "static" / "app.js", "text/javascript; charset=utf-8"),
     "/import.js": (BASE_DIR / "static" / "import.js", "text/javascript; charset=utf-8"),
     "/xp-import.js": (BASE_DIR / "static" / "xp-import.js", "text/javascript; charset=utf-8"),
+    "/investments.js": (BASE_DIR / "static" / "investments.js", "text/javascript; charset=utf-8"),
     "/charts.js": (BASE_DIR / "static" / "charts.js", "text/javascript; charset=utf-8"),
     "/categories.js": (BASE_DIR / "static" / "categories.js", "text/javascript; charset=utf-8"),
     "/manual-card.js": (BASE_DIR / "static" / "manual-card.js", "text/javascript; charset=utf-8"),
@@ -165,6 +166,13 @@ class FinanceHandler(BaseHTTPRequestHandler):
                 raise ValidationError("Escolha de 1 a 24 meses para os gráficos.")
             self._json(HTTPStatus.OK, self.server.store.analytics(
                 self._month(query), self._scope(query), int(raw_months)))
+            return
+        if path == API_PREFIX + "/investments/overview":
+            raw_months = query.get("months", ["6"])[0]
+            if not raw_months.isdecimal():
+                raise ValidationError("Escolha de 1 a 24 meses para os investimentos.")
+            self._json(HTTPStatus.OK, self.server.store.investment_overview(
+                self._month(query), int(raw_months)))
             return
         if path == API_PREFIX + "/transactions":
             self._json(HTTPStatus.OK, {"items": self.server.store.list_month(self._month(query), self._scope(query))})

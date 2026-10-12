@@ -641,6 +641,71 @@ class FinanceStore:
         return {"imported": imported, "skipped": len(entries) - imported,
                 "matched_transfers": matched}
 
+    def investment_overview(self, end_month: str, months: int = 6) -> dict:
+        """Report recorded XP deposits, never the value or return of the portfolio."""
+        end_month = validate_month(end_month)
+        if isinstance(months, bool) or not isinstance(months, int) or not 1 <= months <= 24:
+            raise ValidationError("Escolha de 1 a 24 meses para os investimentos.")
+        month_list = [end_month]
+        for _ in range(months - 1):
+            month_list.insert(0, _previous_month(month_list[0]))
+        first_day = month_list[0] + "-01"
+        last_day = _next_month(end_month) + "-01"
+        with self._connect() as connection:
+            rows = [dict(row) for row in connection.execute("""
+                SELECT occurred_at, description, amount_cents, balance_cents,
+                       matched_transaction_id
+                FROM investment_entries WHERE occurred_at < ? ORDER BY occurred_at
+            """, (last_day,))]
+        deposited_by_month = {month: 0 for month in month_list}
+        seen_months = set()
+        total_deposited = 0
+        period_deposited = 0
+        matched_count = 0
+        matched_cents = 0
+        movements = []
+        for row in rows:
+            occurred_on = row["occurred_at"][:10]
+            month = occurred_on[:7]
+            is_deposit = row["amount_cents"] > 0 and row["description"].casefold().startswith("pix recebido")
+            if is_deposit:
+                total_deposited += row["amount_cents"]
+            if occurred_on < first_day:
+                continue
+            seen_months.add(month)
+            if is_deposit:
+                deposited_by_month[month] += row["amount_cents"]
+                period_deposited += row["amount_cents"]
+                if row["matched_transaction_id"] is not None:
+                    matched_count += 1
+                    matched_cents += row["amount_cents"]
+            movements.append({"occurred_at": row["occurred_at"],
+                              "description": row["description"],
+                              "amount_cents": row["amount_cents"],
+                              "type": "deposit" if is_deposit else
+                                      "allocation" if row["amount_cents"] < 0 and
+                                      ("investimento" in row["description"].casefold() or
+                                       "apl." in row["description"].casefold()) else "other",
+                              "matched_inter": bool(row["matched_transaction_id"])})
+        cumulative = total_deposited - period_deposited
+        series = []
+        first_seen = next((month for month in month_list if month in seen_months), None)
+        for month in month_list:
+            if first_seen is not None and month >= first_seen:
+                cumulative += deposited_by_month[month]
+                accumulated = cumulative
+            else:
+                accumulated = None
+            series.append({"month": month,
+                           "deposits_cents": deposited_by_month[month] if month in seen_months else None,
+                           "cumulative_cents": accumulated})
+        return {"end_month": end_month, "months": series,
+                "total_deposited_cents": total_deposited,
+                "period_deposited_cents": period_deposited,
+                "matched_count": matched_count, "matched_cents": matched_cents,
+                "movement_count": len(movements),
+                "movements": list(reversed(movements[-60:]))}
+
     def invoice_history(self, scope: str = "personal") -> list[dict]:
         scope = validate_scope(scope, allow_all=True)
         with self._connect() as connection:

@@ -43,6 +43,32 @@ class XpImportTests(unittest.TestCase):
         self.assertEqual(self.store.summary("2026-10", "all")["income_cents"], 0)
         self.assertEqual(self.store.summary("2026-10", "all")["expense_cents"], 20000)
         self.assertIsNone(self.store.summary("2026-10", "all")["cash_balance_cents"])
+        overview = self.store.investment_overview("2026-10", 3)
+        self.assertEqual(overview["total_deposited_cents"], 19845)
+        self.assertEqual(overview["matched_count"], 1)
+        self.assertEqual(overview["matched_cents"], 12345)
+        self.assertEqual([month["deposits_cents"] for month in overview["months"]],
+                         [None, None, 19845])
+        self.assertEqual(overview["months"][-1]["cumulative_cents"], 19845)
+        self.assertEqual(overview["movement_count"], 3)
+
+    def test_investment_overview_accumulates_recorded_deposits_by_month(self):
+        entries = parse_xp_statement("xp.csv", """Data;Hora;Descricao;Valor;Saldo
+18/08/26;12:00:00;Pix recebido de Ana Exemplo Silva;R$ 100,00;R$ 100,00
+01/09/26;12:00:00;Pix recebido de Ana Exemplo Silva;R$ 200,00;R$ 200,00
+02/10/26;12:00:00;Pix recebido de Ana Exemplo Silva;R$ 300,00;R$ 300,00
+02/10/26;12:01:00;Transferência enviada para conta investimento;-R$ 300,00;R$ 0,00
+""")
+        self.store.import_xp_statement(entries)
+        overview = self.store.investment_overview("2026-10", 3)
+        self.assertEqual([row["deposits_cents"] for row in overview["months"]],
+                         [10000, 20000, 30000])
+        self.assertEqual([row["cumulative_cents"] for row in overview["months"]],
+                         [10000, 30000, 60000])
+        self.assertEqual(overview["total_deposited_cents"], 60000)
+        self.assertEqual(overview["period_deposited_cents"], 60000)
+        self.assertEqual(self.store.investment_overview("2026-09", 2)["total_deposited_cents"], 30000)
+        self.assertEqual(self.store.summary("2026-10")["income_cents"], 0)
 
     def test_ambiguous_matches_are_not_changed(self):
         for _ in range(2):

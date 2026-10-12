@@ -69,6 +69,7 @@ xpImportButton.addEventListener("click", async () => {
     });
     clearXpPreview();
     await refresh();
+    document.dispatchEvent(new Event("investment-data-change"));
     setXpStatus(`${result.imported} lançamentos XP salvos; ${result.skipped} já existiam. ${result.matched_transfers} transferências do Inter confirmadas como investimento.`);
     showNotice("Extrato da XP importado.");
   } catch (error) {

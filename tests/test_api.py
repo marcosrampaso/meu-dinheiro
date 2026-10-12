@@ -103,6 +103,9 @@ class ApiTests(unittest.TestCase):
         status, result = self.call_api("/api/v1/investments/imports", "POST", payload)
         self.assertEqual((status, result["skipped"]), (201, 1))
         self.assertEqual(self.store.summary("2026-10")["income_cents"], 0)
+        status, overview = self.call_api("/api/v1/investments/overview?month=2026-10&months=3")
+        self.assertEqual((status, overview["total_deposited_cents"]), (200, 1234))
+        self.assertEqual(self.call_api("/api/v1/investments/overview?months=25")[0], 400)
 
     def test_manual_card_purchase_appears_in_invoice_without_cash_expense(self):
         data = {"bank": "inter", "account": "principal", "invoice_month": "2026-10",

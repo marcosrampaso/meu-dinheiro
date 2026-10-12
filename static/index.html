@@ -10,6 +10,7 @@
   <script src="/import.js" defer></script>
   <script src="/xp-import.js" defer></script>
   <script src="/charts.js" defer></script>
+  <script src="/investments.js" defer></script>
   <script src="/categories.js" defer></script>
   <script src="/manual-card.js" defer></script>
 </head>
@@ -21,6 +22,11 @@
     </header>
 
     <main>
+      <nav class="workspace-tabs" role="tablist" aria-label="Áreas do Meu Dinheiro">
+        <button id="finances-tab" type="button" role="tab" aria-controls="finances-view" aria-selected="true">Finanças</button>
+        <button id="investments-tab" type="button" role="tab" aria-controls="investments-view" aria-selected="false">Investimentos</button>
+      </nav>
+      <div id="finances-view" class="app-view" role="tabpanel" aria-labelledby="finances-tab">
       <section class="hero" aria-labelledby="page-title">
         <div>
           <p class="eyebrow">VISÃO GERAL</p>
@@ -111,17 +117,6 @@
         <p class="import-tip">Pagamentos de fatura entram nas saídas do mês; compras do cartão aparecem separadamente, pela data da compra. Transferências entre suas contas, aplicações e cashback não contam como receita ou gasto. Confira a prévia antes de importar.</p>
       </section>
 
-      <section class="panel import-panel" aria-labelledby="xp-import-title">
-        <div class="panel-header"><div><p class="eyebrow">INVESTIMENTOS</p><h2 id="xp-import-title">Importar extrato da XP</h2></div></div>
-        <p class="panel-intro">Envie o CSV da conta XP para guardar o histórico e confirmar transferências feitas pelo Inter. Entradas na XP e aplicações não entram novamente como receita ou despesa. A visão detalhada de investimentos virá depois.</p>
-        <form id="xp-import-form">
-          <div class="import-fields"><label>Extrato CSV da XP<input name="file" type="file" accept=".csv,text/csv" required></label></div>
-          <div id="xp-import-status" class="import-status" role="status" aria-live="polite"></div>
-          <div class="form-actions"><button class="primary-button" type="submit">Ver prévia da XP</button><button id="xp-import-button" class="secondary-button" type="button" disabled>Importar extrato XP</button></div>
-          <div id="xp-import-preview" class="import-preview" hidden></div>
-        </form>
-      </section>
-
       <section id="manual-card" class="panel manual-card-panel" aria-labelledby="manual-card-title">
         <div class="panel-header"><div><p class="eyebrow">CARTÃO DE CRÉDITO</p><h2 id="manual-card-title">Adicionar compra à fatura</h2></div></div>
         <p class="panel-intro">Registre uma compra por vez enquanto a fatura em PDF não estiver disponível. Use o mesmo nome de cartão das faturas já importadas.</p>
@@ -151,6 +146,35 @@
         <div class="panel-header"><div><p class="eyebrow">HISTÓRICO</p><h2 id="transactions-title">Lançamentos do mês</h2></div><span id="count" class="count">0 lançamentos</span></div>
         <p class="transaction-help">Confirmou no comprovante que um débito foi para a XP ou outra corretora? Use “É investimento” no lançamento para tirá-lo dos gastos.</p>
         <div id="transactions-list" class="transactions-list"></div>
+      </section>
+      </div>
+
+      <section id="investments-view" class="app-view" role="tabpanel" aria-labelledby="investments-tab" hidden>
+        <div class="investment-hero">
+          <div><p class="eyebrow">VISÃO DE INVESTIMENTOS</p><h1>Seus aportes na XP</h1><p>Movimentações registradas nos extratos importados.</p></div>
+          <div class="view-controls"><label class="month-picker">Até o mês <input id="investment-month" type="month" aria-label="Mês dos investimentos"></label><label class="month-picker">Período <select id="investment-months" aria-label="Período dos investimentos"><option value="6">6 meses</option><option value="12">12 meses</option><option value="24">24 meses</option></select></label></div>
+        </div>
+        <div id="investment-status" class="import-status" role="status" aria-live="polite"></div>
+        <section class="cards investment-cards" aria-label="Resumo de investimentos">
+          <article class="metric metric-balance"><span>Aportes registrados até o mês</span><strong id="investment-total">—</strong><small>Entradas por PIX na XP</small></article>
+          <article class="metric"><span>Aportes no período</span><strong id="investment-period-total">—</strong><small>Conforme extratos importados</small></article>
+          <article class="metric"><span>PIX conciliados com o Inter</span><strong id="investment-matched">—</strong><small id="investment-matched-amount">—</small></article>
+          <article class="metric"><span>Patrimônio e rendimento</span><strong>—</strong><small>Precisa do relatório de posição da XP</small></article>
+        </section>
+        <p class="investment-note">O extrato mostra o dinheiro que entrou na XP e saiu da conta para aplicações. Esses dois passos não são somados duas vezes. O saldo da conta XP não representa o valor dos investimentos.</p>
+        <section class="charts-section" aria-labelledby="investment-charts-title">
+          <div class="charts-heading"><div><p class="eyebrow">EVOLUÇÃO</p><h2 id="investment-charts-title">Aportes ao longo do tempo</h2><p>Gráficos montados a partir dos CSVs da XP salvos neste computador.</p></div></div>
+          <div class="charts-grid">
+            <article class="panel chart-panel" aria-labelledby="investment-deposits-title"><div class="panel-header"><div><h3 id="investment-deposits-title">Aportes por mês</h3><p>PIX recebidos na XP</p></div></div><div id="investment-deposits-chart" class="chart-area" aria-live="polite"></div><div id="investment-deposits-insight" class="chart-insight" aria-live="polite">Selecione uma barra para ver o valor.</div><p class="chart-note">Meses sem lançamentos nos CSVs aparecem vazios.</p></article>
+            <article class="panel chart-panel" aria-labelledby="investment-cumulative-title"><div class="panel-header"><div><h3 id="investment-cumulative-title">Aportes acumulados</h3><p>Soma dos PIX recebidos até cada mês</p></div></div><div id="investment-cumulative-chart" class="chart-area" aria-live="polite"></div><div id="investment-cumulative-insight" class="chart-insight" aria-live="polite">Selecione um ponto para ver o valor.</div><p class="chart-note">Aportes acumulados não são patrimônio nem rendimento.</p></article>
+          </div>
+        </section>
+        <section class="panel investment-history" aria-labelledby="investment-history-title"><div class="panel-header"><div><p class="eyebrow">HISTÓRICO XP</p><h2 id="investment-history-title">Movimentações</h2></div><span id="investment-count" class="count">—</span></div><div id="investment-movements"></div></section>
+        <section class="panel import-panel" aria-labelledby="xp-import-title">
+          <div class="panel-header"><div><p class="eyebrow">IMPORTAÇÃO</p><h2 id="xp-import-title">Importar extrato da XP</h2></div></div>
+          <p class="panel-intro">Envie um CSV da conta XP para atualizar o histórico e confirmar transferências feitas pelo Inter. Você pode repetir períodos sem duplicar lançamentos.</p>
+          <form id="xp-import-form"><div class="import-fields"><label>Extrato CSV da XP<input name="file" type="file" accept=".csv,text/csv" required></label></div><div id="xp-import-status" class="import-status" role="status" aria-live="polite"></div><div class="form-actions"><button class="primary-button" type="submit">Ver prévia da XP</button><button id="xp-import-button" class="secondary-button" type="button" disabled>Importar extrato XP</button></div><div id="xp-import-preview" class="import-preview" hidden></div></form>
+        </section>
       </section>
     </main>
     <footer>Meu Dinheiro · Seus dados ficam no arquivo local do programa.</footer>

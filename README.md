@@ -26,6 +26,7 @@ O banco padrão fica em `data/financas.db` e é criado na primeira execução. *
 - Visões **Pessoal**, **PJ** e **Tudo**. Transferências identificadas entre contas próprias não duplicam a receita consolidada.
 - Importação de faturas PDF de cartão e extratos CSV/OFX, com prévia e proteção contra importação repetida.
 - Importação de extratos CSV da XP com prévia e conciliação de PIX enviados pelo Inter; o histórico da XP fica separado do fluxo de caixa e dos gráficos de gastos.
+- Aba **Investimentos** com aportes por mês, aportes acumulados e movimentações da XP, atualizada dinamicamente pelos CSVs importados.
 - Histórico de faturas por mês, banco e cartão.
 - Gráficos de entradas e saídas, faturas, saldos e gastos por categoria em barras horizontais mensais, gerados dinamicamente a partir da API. Barras e pontos mostram os valores ao passar o mouse ou usar o teclado; a legenda do gráfico mensal destaca uma categoria em todos os meses. Meses sem extrato não são apresentados como saldo zero.
 - Compras da conta/débito e do cartão de crédito por categoria, com filtros para gerar sugestões opcionais por IA. As sugestões precisam de confirmação antes de serem salvas. Categorias confirmadas são lembradas localmente para compras com a mesma descrição.
@@ -43,7 +44,7 @@ Para faturas PDF, é possível selecionar vários arquivos do mesmo banco e cart
 
 Para extratos CSV/OFX, selecione um arquivo por vez. Em CSV, confira o mapeamento de data, descrição e valor e o sinal das despesas. O arquivo original e a senha não são armazenados; somente os lançamentos importados ficam no SQLite. Os limites são 5 MB por PDF ou 2 MB por CSV/OFX, com até 5.000 lançamentos por arquivo.
 
-Na seção **Importar extrato da XP**, envie o CSV da conta XP e confira a prévia antes de confirmar. O app guarda as linhas em uma tabela separada para a futura visão de investimentos. PIX recebidos na XP são cruzados com débitos do Inter apenas quando data, valor e nome coincidem de forma única. Os débitos confirmados passam a **Transferência para investimento** e saem dos gastos; o saldo bancário continua vindo do extrato do Inter. Arquivos de períodos sobrepostos podem ser importados sem duplicar linhas. A movimentação interna da XP não entra como nova receita ou despesa.
+Na aba **Investimentos**, envie o CSV da conta XP e confira a prévia antes de confirmar. O app guarda as linhas em uma tabela separada e monta gráficos de aportes mensais e acumulados. PIX recebidos na XP são cruzados com débitos do Inter apenas quando data, valor e nome coincidem de forma única. Os débitos confirmados passam a **Transferência para investimento** e saem dos gastos; o saldo bancário continua vindo do extrato do Inter. Arquivos de períodos sobrepostos podem ser importados sem duplicar linhas. A movimentação interna da XP não entra como nova receita ou despesa. **Aportes não são patrimônio:** o CSV de movimentações não traz valor atual das aplicações nem rendimento; para isso será necessário importar um relatório de posição da XP.
 
 Se a fatura atual ainda não puder ser exportada, use **Adicionar compra à fatura**. Escolha banco, área e o mesmo nome de cartão usado nas faturas anteriores; informe data, valor, descrição, categoria e mês da fatura. A compra aparece no histórico e nos gráficos do cartão, mas não altera o saldo da conta corrente. Se importar o PDF dessa fatura depois, confira e exclua lançamentos repetidos.
 
@@ -81,6 +82,7 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | POST | `/imports` | Importar sem duplicar |
 | POST | `/investments/imports/preview` | Conferir linhas do CSV da XP e pares com débitos do Inter |
 | POST | `/investments/imports` | Salvar o histórico da XP sem duplicar e marcar os pares confirmados |
+| GET | `/investments/overview?month=AAAA-MM&months=6` | Aportes mensais e acumulados, conciliações e movimentações para a aba Investimentos |
 | GET | `/categorization/status?scope=personal&month=AAAA-MM&payment_type=account` | Estado da categorização e pendências por conta/cartão e Pessoal/PJ |
 | POST | `/auth/chatgpt/start` | Abrir autorização do ChatGPT |
 | GET | `/auth/callback` | Receber o retorno OAuth no servidor local |
