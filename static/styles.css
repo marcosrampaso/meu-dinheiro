@@ -32,3 +32,6 @@
 .categorization-scope-hint[hidden]{display:none}
 .categorization-scope-hint .text-button{color:#3657bc}
 @media(max-width:520px){.category-month-track{height:25px}.chart-insight{font-size:11px}}
+.transaction-help{font-size:12px;line-height:1.5;color:#63766a;margin:-12px 0 18px}
+.row-actions{flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:700px){.transactions-panel .transaction{flex-wrap:wrap}.transactions-panel .row-actions{width:100%;margin-top:-4px}}

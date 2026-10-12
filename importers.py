@@ -20,6 +20,14 @@ MAX_CONTENT_CHARS = 2_000_000
 BANK_NAMES = {"inter": "Inter", "bb": "Banco do Brasil"}
 
 
+def _names_xp_investimentos(text: str) -> bool:
+    """Require an explicit institution name, not a person's name or a bare 'XP'."""
+    normalized = _normal(text)
+    return bool(re.search(r"\bbanco\s+xp\b|\bxp\s+banco\b|"
+                          r"\bxp\b.{0,45}\b(?:investimentos|corretora|cctvm)\b|"
+                          r"\b(?:investimentos|corretora|cctvm)\b.{0,45}\bxp\b", normalized))
+
+
 def _format(filename: str, content: str | None, content_base64: str | None = None) -> str:
     if not isinstance(filename, str):
         raise ValidationError("Arquivo inválido.")
@@ -279,6 +287,7 @@ def prepare_import(payload: dict) -> list[dict]:
     source = f"{BANK_NAMES[bank]} · {account}"
     excluded_indices: set[int] = set()
     investment_indices: set[int] = set()
+    reversed_pix_indices: set[int] = set()
     cashback_indices: set[int] = set()
     advance_indices: set[int] = set()
     if file_format == "csv":
@@ -299,6 +308,7 @@ def prepare_import(payload: dict) -> list[dict]:
         if amount_index is not None and (debit_index is not None or credit_index is not None):
             raise ValidationError("Use valor único ou débito/crédito, não ambos.")
         normalized_rows = []
+        histories = []
         for line_number, row in enumerate(raw_rows, start=2):
             occurred_on = _date(row[date_index], line_number)
             description = row[description_index].strip()[:120]
@@ -319,13 +329,27 @@ def prepare_import(payload: dict) -> list[dict]:
                 details = _normal(" ".join(row))
                 if re.search(r"\bpagamento\b.*\bfatura\b|\bfatura\b.*\bpagamento\b", details):
                     excluded_indices.add(len(normalized_rows))
-            if mode == "account" and history_index is not None:
-                history = _normal(row[history_index]).strip()
+            history = _normal(row[history_index]).strip() if history_index is not None else ""
+            if mode == "account":
                 if history in ("aplicacao", "resgate"):
                     investment_indices.add(len(normalized_rows))
                 elif history == "cashback":
                     cashback_indices.add(len(normalized_rows))
+                elif kind == "expense" and _names_xp_investimentos(" ".join(row)):
+                    investment_indices.add(len(normalized_rows))
+            histories.append(history)
             normalized_rows.append((occurred_on, description, kind, cents, row[id_index].strip() if id_index is not None else ""))
+        if mode == "account" and history_index is not None:
+            sent = {}
+            for index, (occurred_on, description, kind, cents, _) in enumerate(normalized_rows):
+                if histories[index] == "pix enviado" and kind == "expense":
+                    sent.setdefault((occurred_on, _normal(description), cents), []).append(index)
+            for index, (occurred_on, description, kind, cents, _) in enumerate(normalized_rows):
+                if histories[index] != "pix enviado devolvido" or kind != "income":
+                    continue
+                matches = sent.get((occurred_on, _normal(description), cents), [])
+                if len(matches) == 1:
+                    reversed_pix_indices.update((index, matches[0]))
     elif file_format == "ofx":
         normalized_rows = []
         for line_number, row in enumerate(_ofx_rows(content), start=1):
@@ -352,6 +376,10 @@ def prepare_import(payload: dict) -> list[dict]:
                           if item[2] == "income" and item[3] == advance]
             if len(candidates) == 1:
                 advance_indices.add(candidates[0])
+    if mode == "account":
+        for index, (_, description, kind, _, _) in enumerate(normalized_rows):
+            if kind == "expense" and _names_xp_investimentos(description):
+                investment_indices.add(index)
     seen: Counter[str] = Counter()
     prepared = []
     for index, (occurred_on, description, kind, cents, external_id) in enumerate(normalized_rows):
@@ -366,10 +394,12 @@ def prepare_import(payload: dict) -> list[dict]:
             "kind": kind, "description": description, "amount_cents": cents,
             "category": ("Antecipação da fatura" if index in advance_indices else
                          "Pagamento de fatura" if index in excluded_indices else
+                         "Estorno de Pix" if index in reversed_pix_indices else
                          "Transferência para investimento" if index in investment_indices else
                          "Cashback" if index in cashback_indices else "Importado"),
             "occurred_on": occurred_on,
             "excluded": index in advance_indices or index in excluded_indices or index in investment_indices
+            or index in reversed_pix_indices
             or index in cashback_indices,
             "source": source, "import_key": import_key,
             "invoice_month": statement_month if file_format == "pdf" else None,

@@ -123,6 +123,36 @@ class ImporterTests(unittest.TestCase):
         self.assertTrue(items[0]["excluded"])
         self.assertEqual(items[0]["category"], "Cashback")
 
+    def test_explicit_xp_destination_is_investment_but_own_name_is_ambiguous(self):
+        content = ("Data;Histórico;Descrição;Valor\n"
+                   "09/10/2026;Pix enviado;XP Investimentos CCTVM;-250,00\n"
+                   "09/10/2026;Pix enviado;Titular Exemplo;-350,00\n"
+                   "09/10/2026;Pix enviado;Banco XP S.A.;-75,00\n")
+        inspected = inspect_import("conta.csv", content)
+        items = prepare_import({"filename": "conta.csv", "content": content,
+                                "bank": "inter", "mode": "account", "account": "conta PJ",
+                                "scope": "business", "mapping": inspected["suggested_mapping"]})
+        self.assertEqual([item["category"] for item in items],
+                         ["Transferência para investimento", "Importado", "Transferência para investimento"])
+        self.assertEqual([item["excluded"] for item in items], [True, False, True])
+
+    def test_returned_pix_pair_is_excluded_without_treating_it_as_revenue(self):
+        content = ("Data;Histórico;Descrição;Valor\n"
+                   "21/09/2026;Pix enviado;Loja Exemplo;-200,00\n"
+                   "21/09/2026;Pix enviado devolvido;Loja Exemplo;200,00\n"
+                   "21/09/2026;Pix enviado;Titular Exemplo;-200,00\n")
+        inspected = inspect_import("conta.csv", content)
+        items = prepare_import({"filename": "conta.csv", "content": content,
+                                "bank": "inter", "mode": "account", "account": "conta PJ",
+                                "scope": "business", "mapping": inspected["suggested_mapping"]})
+        self.assertEqual([item["category"] for item in items],
+                         ["Estorno de Pix", "Estorno de Pix", "Importado"])
+        self.store.add_imported([{**item, "category": "Importado", "excluded": False} for item in items])
+        self.assertEqual(self.store.summary("2026-09", "business")["income_cents"], 20000)
+        self.assertEqual(self.store.add_imported(items), {"imported": 0, "skipped": 3})
+        self.assertEqual(self.store.summary("2026-09", "business")["income_cents"], 0)
+        self.assertEqual(self.store.summary("2026-09", "business")["expense_cents"], 20000)
+
     def test_ofx_parses_transactions_and_uses_ids_for_deduplication(self):
         self.assertEqual(inspect_import("extrato.ofx", OFX)["count"], 2)
         items = prepare_import({

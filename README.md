@@ -32,6 +32,8 @@ O banco padrão fica em `data/financas.db` e é criado na primeira execução. *
 
 As **saídas das contas** incluem pagamentos de fatura. As compras feitas no cartão aparecem na data da compra e no histórico da fatura, sem serem somadas novamente ao fluxo de caixa. Transferências internas e cashback identificados ficam fora da receita consolidada. Confira as marcações após importar novos formatos de extrato.
 
+O CSV de conta corrente do Inter traz data, histórico, descrição, valor e saldo, mas não identifica o banco de destino de um PIX. Uma transferência para o próprio nome pode ir para outra conta pessoal ou para uma corretora; por isso o programa não assume que é investimento. Se o extrato trouxer explicitamente **XP Investimentos** ou **Banco XP**, o débito é marcado como transferência para investimento. Um PIX enviado e devolvido no mesmo dia, com mesmo destinatário e valor, fica fora de receitas e gastos. Para lançamentos sem banco de destino, confira o comprovante e use **É investimento** no histórico do mês; o saldo da conta continua vindo do extrato.
+
 ## Importar dados
 
 Na seção **Trazer extrato do banco**, escolha Inter ou Banco do Brasil, o tipo de arquivo e a visão Pessoal ou PJ. Use o mesmo nome de conta ou cartão nas importações seguintes.

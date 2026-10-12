@@ -66,6 +66,18 @@ class FinanceStoreTests(unittest.TestCase):
         self.store.delete(purchase["id"])
         self.assertEqual(self.store.invoice_history(), [])
 
+    def test_confirmed_investment_does_not_count_as_spending_or_change_bank_balance(self):
+        transfer = self.store.add(transaction(description="PIX para corretora", category="Importado",
+                                              amount="250,00", scope="business"))
+        self.store.save_account_balance("Inter · conta PJ", "business", "2026-10-09", 93261)
+        before = self.store.summary("2026-10", "business")
+        self.assertEqual((before["expense_cents"], before["cash_balance_cents"]), (25000, 93261))
+        self.store.update(transfer["id"], transaction(description="PIX para corretora",
+                                                      category="Transferência para investimento",
+                                                      amount="250,00", scope="business", excluded=True))
+        after = self.store.summary("2026-10", "business")
+        self.assertEqual((after["expense_cents"], after["cash_balance_cents"]), (0, 93261))
+
     def test_manual_card_purchase_requires_valid_card_and_invoice(self):
         base = {"bank": "inter", "account": "principal", "invoice_month": "2026-10",
                 "occurred_on": "2026-10-10", "description": "Mercado", "amount": "10,00",

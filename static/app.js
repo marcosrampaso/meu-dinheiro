@@ -129,6 +129,14 @@ function renderTransactions(items) {
     remove.textContent = "Excluir";
     remove.setAttribute("aria-label", `Excluir ${item.description}`);
     remove.addEventListener("click", () => deleteItem(item));
+    if (item.kind === "expense" && item.invoice_month === null && !item.excluded && item.category === "Importado") {
+      const investment = document.createElement("button");
+      investment.type = "button";
+      investment.textContent = "É investimento";
+      investment.setAttribute("aria-label", `Marcar ${item.description} como investimento`);
+      investment.addEventListener("click", () => markInvestment(item));
+      actions.append(investment);
+    }
     actions.append(edit, remove);
     row.append(icon, main, amount, actions);
     list.append(row);
@@ -192,6 +200,26 @@ async function deleteItem(item) {
     if (editingId === item.id) resetForm();
     await Promise.all([refresh(), refreshInvoices()]);
     showNotice("Lançamento excluído.");
+  } catch (error) {
+    showNotice(error.message, true);
+  }
+}
+
+async function markInvestment(item) {
+  if (!window.confirm(`Você confirmou no comprovante que “${item.description}” (${money.format(item.amount_cents / 100)}) foi para uma corretora? Esse lançamento sairá dos gastos.`)) return;
+  try {
+    await request(`/transactions/${item.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        kind: item.kind, description: item.description,
+        amount: (item.amount_cents / 100).toFixed(2),
+        category: "Transferência para investimento",
+        occurred_on: item.occurred_on, excluded: true, scope: item.scope,
+      }),
+    });
+    if (editingId === item.id) resetForm();
+    await refresh();
+    showNotice("Transferência marcada como investimento. O saldo da conta continua vindo do extrato.");
   } catch (error) {
     showNotice(error.message, true);
   }
