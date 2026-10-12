@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import threading
 import webbrowser
 from datetime import date
@@ -17,6 +16,7 @@ from finance import FinanceStore, NotFoundError, PURCHASE_CATEGORIES, Validation
 from categorizer import CategorizationError, MissingAPIKey, MODEL, suggest_categories
 from importers import (account_balance_from_csv, account_daily_balances_from_csv,
                        account_period_from_csv, inspect_import, prepare_import)
+from settings import ConfigError, get_openai_api_key
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -65,6 +65,8 @@ class FinanceHandler(BaseHTTPRequestHandler):
         except ValidationError as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
         except MissingAPIKey as exc:
+            self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
+        except ConfigError as exc:
             self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
         except CategorizationError as exc:
             self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
@@ -154,7 +156,7 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if path == API_PREFIX + "/categorization/status":
             month = query.get("month", [None])[0]
             _, count = self.server.store.uncategorized_purchases(self._scope(query), month)
-            self._json(HTTPStatus.OK, {"configured": bool(os.environ.get("OPENAI_API_KEY")),
+            self._json(HTTPStatus.OK, {"configured": bool(get_openai_api_key(BASE_DIR / ".env")),
                                        "model": MODEL, "uncategorized_count": count,
                                        "categories": PURCHASE_CATEGORIES})
             return
@@ -207,7 +209,7 @@ class FinanceHandler(BaseHTTPRequestHandler):
             data = self._read_json()
             rows, count = self.server.store.uncategorized_purchases(
                 data.get("scope", "personal"), data.get("month"))
-            suggestions = suggest_categories(rows) if rows else []
+            suggestions = suggest_categories(rows, api_key=get_openai_api_key(BASE_DIR / ".env")) if rows else []
             by_id = {item["id"]: item["category"] for item in suggestions}
             self._json(HTTPStatus.OK, {"items": [{**row, "suggested_category": by_id[row["id"]]}
                                                   for row in rows],

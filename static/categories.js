@@ -30,7 +30,7 @@ async function refreshCategoryStatus() {
     suggestButton.disabled = !data.configured || data.uncategorized_count === 0;
     categoryStatus.classList.remove("error");
     categoryStatus.textContent = !data.configured
-      ? `${data.uncategorized_count} compras sem categoria. Para ativar, configure OPENAI_API_KEY no servidor e reinicie o programa.`
+      ? `${data.uncategorized_count} compras sem categoria. Para ativar, preencha OPENAI_API_KEY no arquivo .env do projeto e atualize a página.`
       : data.uncategorized_count
         ? `${data.uncategorized_count} compras sem categoria · até 40 sugestões por vez · ${data.model}.`
         : "Todas as compras deste período já têm categoria.";

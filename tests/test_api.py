@@ -104,6 +104,7 @@ class ApiTests(unittest.TestCase):
         status, body = self.call_api("/")
         self.assertEqual(status, 200)
         self.assertIn(b"Meu Dinheiro", body)
+        self.assertEqual(self.call_api("/.env")[0], 404)
 
     def test_import_inspect_preview_commit(self):
         statement = "Data;Descrição;Valor\n09/10/2026;Café;12,50\n"

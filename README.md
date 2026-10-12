@@ -42,7 +42,9 @@ Se a fatura atual ainda não puder ser exportada, use **Adicionar compra à fatu
 
 ## Categorias com IA
 
-Configure a variável de ambiente `OPENAI_API_KEY` **no processo do servidor** e reinicie a aplicação. Na tela, escolha o período, gere sugestões para até 40 compras, revise as categorias e clique em **Aplicar categorias**. Sem a chave, o restante do programa funciona normalmente.
+Crie uma chave no [painel da OpenAI](https://platform.openai.com/api-keys). Copie `.env.example` para `.env` na raiz do projeto, execute `chmod 600 .env` e preencha a linha `OPENAI_API_KEY=` com sua chave. O servidor lê o arquivo quando a tela consulta a categorização; depois de salvar a chave, atualize a página. Também é possível definir `OPENAI_API_KEY` como variável de ambiente do processo, que tem prioridade sobre o arquivo.
+
+O `.env` é ignorado pelo Git e não deve ser enviado ao GitHub. Não cole a chave no README, em código, em capturas de tela ou em mensagens. Na tela, escolha o período, gere sugestões para até 40 compras, revise as categorias e clique em **Aplicar categorias**. Sem a chave, o restante do programa funciona normalmente.
 
 A integração usa a API Responses da OpenAI com o modelo configurado em [`categorizer.py`](categorizer.py). Envia apenas IDs e descrições das compras selecionadas; identificadores comuns nas descrições são mascarados. Valores, datas, saldos e arquivos originais não são enviados. A chamada pode gerar custo de API. A chave não é enviada ao navegador nem salva no SQLite.
 
