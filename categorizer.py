@@ -1,9 +1,8 @@
-"""Optional, review-first purchase categorization through the OpenAI API."""
+"""Review-first purchase categorization using an authorized ChatGPT plan."""
 
 from __future__ import annotations
 
 import json
-import os
 import re
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -11,16 +10,11 @@ from urllib.request import Request, urlopen
 from finance import PURCHASE_CATEGORIES
 
 
-MODEL = "gpt-6-luna"
 API_URL = "https://api.openai.com/v1/responses"
 
 
 class CategorizationError(RuntimeError):
     """A model suggestion could not be obtained or trusted."""
-
-
-class MissingAPIKey(CategorizationError):
-    """The local server has no OpenAI API key configured."""
 
 
 def _description_for_model(description: str) -> str:
@@ -33,7 +27,7 @@ def _description_for_model(description: str) -> str:
     return description[:120]
 
 
-def _request_body(rows: list[dict]) -> dict:
+def _request_body(rows: list[dict], model: str) -> dict:
     schema = {
         "type": "object", "additionalProperties": False,
         "properties": {"items": {
@@ -47,10 +41,9 @@ def _request_body(rows: list[dict]) -> dict:
         "required": ["items"],
     }
     return {
-        "model": MODEL,
+        "model": model,
         "store": False,
-        "reasoning": {"effort": "none"},
-        "max_output_tokens": 3000,
+        "stream": True,
         "text": {"format": {"type": "json_schema", "name": "categorias_de_compras",
                             "strict": True, "schema": schema}},
         "input": [
@@ -73,29 +66,54 @@ def _request_body(rows: list[dict]) -> dict:
     }
 
 
-def suggest_categories(rows: list[dict], api_key: str | None = None) -> list[dict]:
+def _read_completed_response(response) -> dict:
+    """Consume all SSE events and trust only a completed response."""
+    data_lines = []
+    for raw_line in response:
+        line = raw_line.decode("utf-8").rstrip("\r\n")
+        if line.startswith("data:"):
+            data_lines.append(line[5:].lstrip())
+            continue
+        if line or not data_lines:
+            continue
+        try:
+            event = json.loads("\n".join(data_lines))
+        except (ValueError, TypeError) as exc:
+            raise CategorizationError("O ChatGPT devolveu uma resposta inválida.") from exc
+        data_lines.clear()
+        event_type = event.get("type")
+        if event_type == "response.completed":
+            return event["response"]
+        if event_type == "response.failed":
+            error = (event.get("response") or {}).get("error") or {}
+            if error.get("code") == "subscription_sharing_usage_limit_exceeded":
+                raise CategorizationError("Limite de uso do plano ChatGPT atingido. Confira seu uso nas configurações do ChatGPT.")
+            raise CategorizationError("O ChatGPT não concluiu a categorização. Nenhuma categoria foi alterada.")
+        if event_type in ("response.incomplete", "error"):
+            raise CategorizationError("O ChatGPT interrompeu a categorização. Nenhuma categoria foi alterada.")
+    raise CategorizationError("A conexão terminou antes da resposta completa do ChatGPT.")
+
+
+def suggest_categories(rows: list[dict], access_token: str, model: str) -> list[dict]:
     """Send only transaction IDs and descriptions; return validated suggestions."""
     if not rows or len(rows) > 40:
         raise CategorizationError("Selecione de 1 a 40 compras por vez.")
-    key = (api_key if api_key is not None else os.environ.get("OPENAI_API_KEY", "")).strip()
-    if not key:
-        raise MissingAPIKey("Configure OPENAI_API_KEY no servidor para usar sugestões com IA.")
-    request = Request(API_URL, data=json.dumps(_request_body(rows), ensure_ascii=False).encode("utf-8"),
-                      headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    if not access_token or not model:
+        raise CategorizationError("Conecte o ChatGPT antes de gerar sugestões.")
+    request = Request(API_URL, data=json.dumps(_request_body(rows, model), ensure_ascii=False).encode("utf-8"),
+                      headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
                       method="POST")
     try:
-        with urlopen(request, timeout=60) as response:
-            payload = json.load(response)
+        with urlopen(request, timeout=90) as response:
+            payload = _read_completed_response(response)
     except HTTPError as exc:
         if exc.code in (401, 403):
-            raise CategorizationError("Chave da API inválida ou sem acesso ao modelo.") from exc
+            raise CategorizationError("Seu plano ChatGPT não autorizou esta chamada. Conecte novamente.") from exc
         if exc.code == 429:
-            raise CategorizationError("Limite da API atingido. Tente novamente depois.") from exc
-        raise CategorizationError(f"A API de categorização não respondeu (HTTP {exc.code}).") from exc
+            raise CategorizationError("Limite de uso do plano ChatGPT atingido. Confira seu uso nas configurações do ChatGPT.") from exc
+        raise CategorizationError(f"O ChatGPT não respondeu (HTTP {exc.code}).") from exc
     except (URLError, TimeoutError, OSError) as exc:
-        raise CategorizationError("Não foi possível acessar a API de categorização.") from exc
-    except json.JSONDecodeError as exc:
-        raise CategorizationError("A API devolveu uma resposta inválida. Nenhuma categoria foi alterada.") from exc
+        raise CategorizationError("Não foi possível acessar o ChatGPT.") from exc
     try:
         if not isinstance(payload, dict) or payload.get("status") != "completed":
             raise ValueError("Resposta incompleta")

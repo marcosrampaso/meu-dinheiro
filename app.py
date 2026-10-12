@@ -12,11 +12,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from chatgpt_auth import ChatGPTAuth, ChatGPTAuthError
 from finance import FinanceStore, NotFoundError, PURCHASE_CATEGORIES, ValidationError, validate_month, validate_scope
-from categorizer import CategorizationError, MissingAPIKey, MODEL, suggest_categories
+from categorizer import CategorizationError, suggest_categories
 from importers import (account_balance_from_csv, account_daily_balances_from_csv,
                        account_period_from_csv, inspect_import, prepare_import)
-from settings import ConfigError, get_openai_api_key
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -36,10 +36,16 @@ class FinanceHTTPServer(ThreadingHTTPServer):
     def __init__(self, address: tuple[str, int], store: FinanceStore):
         super().__init__(address, FinanceHandler)
         self.store = store
+        self.auth = ChatGPTAuth(BASE_DIR / "data" / "chatgpt-auth.json")
 
 
 class FinanceHandler(BaseHTTPRequestHandler):
     server: FinanceHTTPServer
+
+    def log_request(self, code="-", size="-") -> None:
+        # OAuth callback query strings contain authorization codes.
+        self.log_message('"%s %s %s" %s %s', self.command, urlsplit(self.path).path,
+                         self.request_version, code, size)
 
     def do_GET(self) -> None:
         self._handle(self._get)
@@ -64,9 +70,7 @@ class FinanceHandler(BaseHTTPRequestHandler):
             action()
         except ValidationError as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
-        except MissingAPIKey as exc:
-            self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
-        except ConfigError as exc:
+        except ChatGPTAuthError as exc:
             self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
         except CategorizationError as exc:
             self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
@@ -126,6 +130,15 @@ class FinanceHandler(BaseHTTPRequestHandler):
 
     def _get(self) -> None:
         path, query = self._route()
+        if path == "/auth/callback":
+            try:
+                self.server.auth.complete(query)
+                self._redirect("/?chatgpt=" +
+                               ("connected" if self.server.auth.status()["connected"] else "error"))
+            except ChatGPTAuthError as exc:
+                self.server.auth.last_error = str(exc)
+                self._redirect("/?chatgpt=error")
+            return
         if path in STATIC_FILES:
             file_path, content_type = STATIC_FILES[path]
             body = file_path.read_bytes()
@@ -156,9 +169,8 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if path == API_PREFIX + "/categorization/status":
             month = query.get("month", [None])[0]
             _, count = self.server.store.uncategorized_purchases(self._scope(query), month)
-            self._json(HTTPStatus.OK, {"configured": bool(get_openai_api_key(BASE_DIR / ".env")),
-                                       "model": MODEL, "uncategorized_count": count,
-                                       "categories": PURCHASE_CATEGORIES})
+            self._json(HTTPStatus.OK, {**self.server.auth.status(),
+                                       "uncategorized_count": count, "categories": PURCHASE_CATEGORIES})
             return
         if path.startswith(API_PREFIX + "/invoices/"):
             self._json(HTTPStatus.OK, {"items": self.server.store.invoice_items(
@@ -177,6 +189,21 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if not self._require_same_origin():
             return
         path, _ = self._route()
+        if path == API_PREFIX + "/auth/chatgpt/start":
+            data = self._read_json()
+            client_id = data.get("client_id")
+            if client_id is not None and not isinstance(client_id, str):
+                raise ValidationError("Conta ChatGPT inválida.")
+            url = self.server.auth.start(self.server.server_port,
+                                         new_account=data.get("new_account") is True,
+                                         client_id=client_id)
+            opened = webbrowser.open(url)
+            self._json(HTTPStatus.OK, {"opened": opened, "authorization_url": url})
+            return
+        if path == API_PREFIX + "/auth/chatgpt/disconnect":
+            self.server.auth.disconnect()
+            self._json(HTTPStatus.OK, self.server.auth.status())
+            return
         if path == API_PREFIX + "/card-purchases":
             self._json(HTTPStatus.CREATED, self.server.store.add_card_purchase(self._read_json()))
             return
@@ -209,11 +236,12 @@ class FinanceHandler(BaseHTTPRequestHandler):
             data = self._read_json()
             rows, count = self.server.store.uncategorized_purchases(
                 data.get("scope", "personal"), data.get("month"))
-            suggestions = suggest_categories(rows, api_key=get_openai_api_key(BASE_DIR / ".env")) if rows else []
+            token, model = self.server.auth.inference_credentials() if rows else ("", None)
+            suggestions = suggest_categories(rows, token, model) if rows else []
             by_id = {item["id"]: item["category"] for item in suggestions}
             self._json(HTTPStatus.OK, {"items": [{**row, "suggested_category": by_id[row["id"]]}
                                                   for row in rows],
-                                       "remaining_count": count - len(rows), "model": MODEL})
+                                       "remaining_count": count - len(rows), "model": model})
             return
         if path == API_PREFIX + "/categorization/apply":
             data = self._read_json()
@@ -255,6 +283,14 @@ class FinanceHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(body)
+
+    def _redirect(self, location: str) -> None:
+        self.send_response(HTTPStatus.SEE_OTHER)
+        self.send_header("Location", location)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
 
 def main() -> None:

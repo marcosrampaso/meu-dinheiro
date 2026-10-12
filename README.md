@@ -4,16 +4,18 @@ Aplicação local de finanças em Python, com tela no navegador e API JSON. Orga
 
 ## Começar
 
-Requer Python 3.10 ou mais recente. A biblioteca `pypdf` já está incluída em `vendor`, então o uso básico não exige instalação de pacotes.
+Requer Python 3.10 ou mais recente. A biblioteca `pypdf` já está incluída em `vendor`. O login com ChatGPT usa `PyJWT` e `cryptography` para validar a identidade.
 
 ```bash
-python3 app.py
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python app.py
 ```
 
 Acesse <http://127.0.0.1:8765>. Para usar outra porta ou outro banco SQLite:
 
 ```bash
-python3 app.py --port 8767 --db /caminho/para/financas.db
+.venv/bin/python app.py --port 8767 --db /caminho/para/financas.db
 ```
 
 O banco padrão fica em `data/financas.db` e é criado na primeira execução. **Bancos, extratos, faturas, senhas e chaves de API não fazem parte do repositório.** Faça backup do banco separadamente. O servidor escuta apenas em `127.0.0.1`; uma futura versão acessível pela rede precisará de autenticação.
@@ -42,11 +44,11 @@ Se a fatura atual ainda não puder ser exportada, use **Adicionar compra à fatu
 
 ## Categorias com IA
 
-Crie uma chave no [painel da OpenAI](https://platform.openai.com/api-keys). Copie `.env.example` para `.env` na raiz do projeto, execute `chmod 600 .env` e preencha a linha `OPENAI_API_KEY=` com sua chave. O servidor lê o arquivo quando a tela consulta a categorização; depois de salvar a chave, atualize a página. Também é possível definir `OPENAI_API_KEY` como variável de ambiente do processo, que tem prioridade sobre o arquivo.
+Clique em **Continuar com ChatGPT** na seção de categorias. O programa abre o login no navegador padrão; entre na sua conta e autorize o uso do plano. O retorno acontece em `http://127.0.0.1:<porta>/auth/callback`, no próprio servidor local. Depois, escolha o período, gere sugestões para até 40 compras, revise e clique em **Aplicar categorias**. O botão **Gerenciar uso** abre as configurações do ChatGPT. O uso compartilha os limites do seu plano; não usa a cobrança da API key.
 
-O `.env` é ignorado pelo Git e não deve ser enviado ao GitHub. Não cole a chave no README, em código, em capturas de tela ou em mensagens. Na tela, escolha o período, gere sugestões para até 40 compras, revise as categorias e clique em **Aplicar categorias**. Sem a chave, o restante do programa funciona normalmente.
+As credenciais OAuth ficam somente em `data/chatgpt-auth.json`, com permissão de leitura restrita, e a pasta `data/` é ignorada pelo Git. O aplicativo renova o token quando necessário e usa apenas um modelo autorizado para a conta conectada. Ao desconectar, ele revoga a sessão renovável quando a rede permite e apaga os tokens locais. O arquivo `.env` de versões anteriores continua ignorado pelo Git, mas **não é mais lido pelo programa**.
 
-A integração usa a API Responses da OpenAI com o modelo configurado em [`categorizer.py`](categorizer.py). Envia apenas IDs e descrições das compras selecionadas; identificadores comuns nas descrições são mascarados. Valores, datas, saldos e arquivos originais não são enviados. A chamada pode gerar custo de API. A chave não é enviada ao navegador nem salva no SQLite.
+A integração usa a API Responses com `store: false` e `stream: true`. Envia apenas IDs e descrições tratadas das compras selecionadas; identificadores comuns nas descrições são mascarados. Valores, datas, saldos e arquivos originais não são enviados. A conexão não dá acesso às suas conversas do ChatGPT. A categorização nunca troca automaticamente para cobrança por API key.
 
 ## API
 
@@ -68,6 +70,9 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | POST | `/imports/preview` | Validar lançamentos antes de salvar |
 | POST | `/imports` | Importar sem duplicar |
 | GET | `/categorization/status?scope=personal&month=AAAA-MM` | Estado da categorização |
+| POST | `/auth/chatgpt/start` | Abrir autorização do ChatGPT |
+| GET | `/auth/callback` | Receber o retorno OAuth no servidor local |
+| POST | `/auth/chatgpt/disconnect` | Desconectar o ChatGPT |
 | POST | `/categorization/suggest` | Sugerir categorias sem salvar |
 | POST | `/categorization/apply` | Salvar categorias revisadas |
 
@@ -76,7 +81,7 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 ## Desenvolvimento
 
 ```bash
-python3 -m unittest discover -s tests -v
+.venv/bin/python -m unittest discover -s tests -v
 node --check static/app.js
 node --check static/import.js
 node --check static/charts.js

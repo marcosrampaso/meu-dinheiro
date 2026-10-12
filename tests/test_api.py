@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from app import FinanceHandler
+from chatgpt_auth import ChatGPTAuth
 from finance import FinanceStore
 
 
@@ -33,6 +35,7 @@ class ApiTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.store = FinanceStore(Path(self.directory.name) / "test.db")
         self.server = SimpleNamespace(store=self.store, server_port=8765)
+        self.server.auth = ChatGPTAuth(Path(self.directory.name) / "chatgpt-auth.json")
 
     def tearDown(self):
         self.directory.cleanup()
@@ -105,6 +108,17 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b"Meu Dinheiro", body)
         self.assertEqual(self.call_api("/.env")[0], 404)
+
+    def test_chatgpt_login_route_starts_local_callback_without_api_key(self):
+        with patch("app.webbrowser.open", return_value=True) as browser:
+            status, result = self.call_api("/api/v1/auth/chatgpt/start", "POST", {})
+        self.assertEqual(status, 200)
+        self.assertTrue(result["opened"])
+        self.assertIn("redirect_uri=http%3A%2F%2F127.0.0.1%3A8765%2Fauth%2Fcallback",
+                      result["authorization_url"])
+        browser.assert_called_once_with(result["authorization_url"])
+        self.assertFalse(self.call_api("/api/v1/categorization/status")[1]["connected"])
+        self.assertEqual(self.call_api("/auth/callback?state=wrong&code=secret")[0], 303)
 
     def test_import_inspect_preview_commit(self):
         statement = "Data;Descrição;Valor\n09/10/2026;Café;12,50\n"
@@ -184,13 +198,19 @@ class ApiTests(unittest.TestCase):
             "kind": "expense", "description": "Mercado", "amount": "25,00",
             "category": "Importado", "occurred_on": "2026-10-09",
         })
-        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
-            status, info = self.call_api("/api/v1/categorization/status?month=2026-10")
-            self.assertEqual((status, info["uncategorized_count"], info["configured"]), (200, 1, True))
-            with patch("app.suggest_categories", return_value=[{"id": 1, "category": "Mercado"}]):
+        self.server.auth.data["accounts"]["oaiapp_test"] = {
+            "access_token": "test-token", "scopes": ["chatgpt.tokens.use.direct"],
+            "email": "teste@exemplo.com", "model": "gpt-6-luna",
+        }
+        self.server.auth.data["active"] = "oaiapp_test"
+        status, info = self.call_api("/api/v1/categorization/status?month=2026-10")
+        self.assertEqual((status, info["uncategorized_count"], info["connected"]), (200, 1, True))
+        with patch.object(self.server.auth, "inference_credentials", return_value=("test-token", "gpt-6-luna")):
+            with patch("app.suggest_categories", return_value=[{"id": 1, "category": "Mercado"}]) as suggest:
                 status, suggestions = self.call_api("/api/v1/categorization/suggest", "POST",
                                                      {"scope": "personal", "month": "2026-10"})
-            self.assertEqual((status, suggestions["items"][0]["suggested_category"]), (200, "Mercado"))
+                self.assertEqual(suggest.call_args.args[1:], ("test-token", "gpt-6-luna"))
+        self.assertEqual((status, suggestions["items"][0]["suggested_category"]), (200, "Mercado"))
         status, saved = self.call_api("/api/v1/categorization/apply", "POST", {
             "scope": "personal", "items": [{"id": 1, "category": "Alimentação"}],
         })
@@ -198,6 +218,18 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.store.summary("2026-10")["purchase_categories"],
                          [{"category": "Alimentação", "amount_cents": 2500}])
         self.assertEqual(self.call_api("/api/v1/categorization/status?month=2026-10")[1]["uncategorized_count"], 0)
+
+    def test_categorization_never_uses_old_api_key_without_chatgpt_login(self):
+        self.call_api("/api/v1/transactions", "POST", {
+            "kind": "expense", "description": "Mercado", "amount": "25,00",
+            "category": "Importado", "occurred_on": "2026-10-09",
+        })
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "old-test-key"}):
+            with patch("app.suggest_categories") as suggest:
+                status, result = self.call_api("/api/v1/categorization/suggest", "POST", {})
+        self.assertEqual(status, 503)
+        self.assertIn("Conecte o ChatGPT", result["error"])
+        suggest.assert_not_called()
 
 
 if __name__ == "__main__":
