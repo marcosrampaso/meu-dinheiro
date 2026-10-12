@@ -26,7 +26,7 @@ O banco padrão fica em `data/financas.db` e é criado na primeira execução. *
 - Visões **Pessoal**, **PJ** e **Tudo**. Transferências identificadas entre contas próprias não duplicam a receita consolidada.
 - Importação de faturas PDF de cartão e extratos CSV/OFX, com prévia e proteção contra importação repetida.
 - Histórico de faturas por mês, banco e cartão.
-- Gráficos de entradas e saídas, faturas e saldos gerados dinamicamente a partir da API. Meses sem extrato não são apresentados como saldo zero.
+- Gráficos de entradas e saídas, faturas, saldos e gastos por categoria em barras horizontais mensais, gerados dinamicamente a partir da API. Meses sem extrato não são apresentados como saldo zero.
 - Compras por categoria, com sugestões opcionais por IA que precisam de confirmação antes de serem salvas. Categorias confirmadas são lembradas localmente para compras com a mesma descrição.
 - Registro manual de compras no cartão, vinculado ao mês da fatura.
 
@@ -48,6 +48,8 @@ Clique em **Continuar com ChatGPT** na seção de categorias. O programa abre o 
 
 Ao aplicar uma categoria, o app a associa localmente à descrição normalizada do estabelecimento, separadamente para Pessoal e PJ. Escritas manuais e correções feitas na edição de lançamentos também atualizam essa memória; categorias de compras já classificadas antes desta versão são aproveitadas na primeira inicialização. A mesma descrição usa a categoria aprendida nas próximas sugestões, identificada como **Aprendido com você** na prévia, e ainda pode ser corrigida antes de salvar. Descrições genéricas como “Pix” não geram regra. Isso é uma memória do app no SQLite, não um treinamento permanente do modelo.
 
+O quadro **Compras por categoria** permite alternar entre o mês selecionado e todo o histórico. Depois de aplicar categorias a todo o histórico, a tela passa a mostrar o total histórico nesse quadro. O gráfico mensal em barras horizontais mostra o valor total de cada mês e a participação de cada categoria; segue a visão Pessoal/PJ/Tudo e o período dos gráficos.
+
 As credenciais OAuth ficam somente em `data/chatgpt-auth.json`, com permissão de leitura restrita, e a pasta `data/` é ignorada pelo Git. O aplicativo renova o token quando necessário e usa apenas um modelo autorizado para a conta conectada. Ao desconectar, ele revoga a sessão renovável quando a rede permite e apaga os tokens locais. O arquivo `.env` de versões anteriores continua ignorado pelo Git, mas **não é mais lido pelo programa**.
 
 A integração usa a API Responses com `store: false` e `stream: true`. Envia apenas IDs e descrições tratadas das compras que ainda não têm categoria aprendida; identificadores comuns nas descrições são mascarados. Valores, datas, saldos, categorias confirmadas e arquivos originais não são enviados. A conexão não dá acesso às suas conversas do ChatGPT. A categorização nunca troca automaticamente para cobrança por API key.
@@ -59,7 +61,8 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | Método | Rota | Função |
 | --- | --- | --- |
 | GET | `/summary?month=AAAA-MM&scope=personal` | Resumo mensal |
-| GET | `/analytics?month=AAAA-MM&scope=all&months=6` | Séries dos gráficos; `months` aceita de 1 a 24 |
+| GET | `/purchase-categories?scope=personal&month=AAAA-MM` | Gastos por categoria no mês; sem `month`, todo o histórico |
+| GET | `/analytics?month=AAAA-MM&scope=all&months=6` | Séries dos gráficos, incluindo `category_spending` por mês; `months` aceita de 1 a 24 |
 | GET | `/transactions?month=AAAA-MM&scope=business` | Lista de lançamentos |
 | GET | `/transactions/{id}` | Um lançamento |
 | POST | `/transactions` | Criar lançamento |

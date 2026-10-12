@@ -459,6 +459,15 @@ class FinanceStore:
                 "ORDER BY scope, source, as_of",
                 (first_day, last_day, scope, scope),
             )]
+            category_rows = [dict(row) for row in connection.execute("""
+                SELECT substr(occurred_on, 1, 7) AS month, category,
+                       SUM(amount_cents) AS amount_cents
+                FROM transactions
+                WHERE kind = 'expense' AND excluded = 0 AND category != 'Pagamento de fatura'
+                  AND occurred_on >= ? AND occurred_on < ?
+                  AND (? = 'all' OR scope = ?)
+                GROUP BY month, category ORDER BY month, amount_cents DESC, category
+            """, (first_day, last_day, scope, scope))]
         invoices_by_month: dict[str, dict] = {}
         for invoice in self.invoice_history(scope):
             month = invoice["invoice_month"]
@@ -492,8 +501,16 @@ class FinanceStore:
         for row in balance_rows:
             series.setdefault((row["source"], row["scope"]), []).append(
                 {"date": row["as_of"], "amount_cents": row["amount_cents"]})
+        spending_by_month: dict[str, list[dict]] = {month: [] for month in month_list}
+        for row in category_rows:
+            spending_by_month[row["month"]].append(
+                {"category": row["category"], "amount_cents": row["amount_cents"]})
         return {"scope": scope, "end_month": end_month, "months": month_list,
                 "cashflow": cashflow, "invoices": invoices,
+                "category_spending": [
+                    {"month": month, "total_cents": sum(item["amount_cents"] for item in spending_by_month[month]),
+                     "categories": spending_by_month[month]}
+                    for month in month_list],
                 "balance_series": [{"source": source, "scope": account_scope, "points": points}
                                    for (source, account_scope), points in series.items()]}
 
@@ -628,6 +645,27 @@ class FinanceStore:
                 "ORDER BY occurred_on, id", (month, source, scope),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def purchase_categories(self, scope: str = "personal", month: str | None = None) -> dict:
+        """Sum purchases for one month or the full history without bill payments."""
+        scope = validate_scope(scope, allow_all=True)
+        if month is not None:
+            month = validate_month(month)
+        start = month + "-01" if month else None
+        end = _next_month(month) + "-01" if month else None
+        with self._connect() as connection:
+            rows = connection.execute("""
+                SELECT category, SUM(amount_cents) AS amount_cents
+                FROM transactions
+                WHERE kind = 'expense' AND excluded = 0 AND category != 'Pagamento de fatura'
+                  AND (? = 'all' OR scope = ?)
+                  AND (? IS NULL OR (occurred_on >= ? AND occurred_on < ?))
+                GROUP BY category ORDER BY amount_cents DESC, category
+            """, (scope, scope, month, start, end)).fetchall()
+        categories = [dict(row) for row in rows]
+        return {"scope": scope, "month": month,
+                "purchase_total_cents": sum(row["amount_cents"] for row in categories),
+                "purchase_categories": categories}
 
     def summary(self, month: str, scope: str = "personal") -> dict:
         items = self.list_month(month, scope)

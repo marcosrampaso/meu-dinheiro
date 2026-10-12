@@ -201,6 +201,8 @@ applyButton.addEventListener("click", async () => {
     const result = await request("/categorization/apply", {
       method: "POST", body: JSON.stringify({ scope: previewContext.scope, items }),
     });
+    purchasePeriodInput.value = previewContext.month ? "month" : "all";
+    window.localStorage.setItem("purchase-period", purchasePeriodInput.value);
     clearCategoryPreview();
     await refresh();
     showNotice(`${result.applied} compras categorizadas${result.skipped ? `; ${result.skipped} já tinham sido alteradas` : ""}.`);
@@ -219,4 +221,5 @@ document.querySelector("#cancel-categories").addEventListener("click", () => {
 });
 categoryRange.addEventListener("change", () => { clearCategoryPreview(); refreshCategoryStatus(); });
 document.addEventListener("finance-data-change", () => { clearCategoryPreview(); refreshCategoryStatus(); });
+document.addEventListener("finance-view-resume", () => { if (!previewContext) refreshCategoryStatus(); });
 refreshCategoryStatus();

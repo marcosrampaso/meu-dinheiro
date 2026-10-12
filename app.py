@@ -153,6 +153,10 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if path == API_PREFIX + "/summary":
             self._json(HTTPStatus.OK, self.server.store.summary(self._month(query), self._scope(query)))
             return
+        if path == API_PREFIX + "/purchase-categories":
+            self._json(HTTPStatus.OK, self.server.store.purchase_categories(
+                self._scope(query), query.get("month", [None])[0]))
+            return
         if path == API_PREFIX + "/analytics":
             raw_months = query.get("months", ["6"])[0]
             if not raw_months.isdecimal():

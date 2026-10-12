@@ -46,6 +46,7 @@
         <div class="charts-grid">
           <article class="panel chart-panel" aria-labelledby="cashflow-title"><div class="panel-header"><div><h3 id="cashflow-title">Entradas e saídas</h3><p>Movimento das contas, sem transferências internas</p></div></div><div id="cashflow-chart" class="chart-area" aria-live="polite"></div><div class="chart-legend"><span><i class="legend-income"></i>Entradas</span><span><i class="legend-expense"></i>Saídas</span></div><p id="cashflow-note" class="chart-note"></p></article>
           <article class="panel chart-panel" aria-labelledby="invoice-chart-title"><div class="panel-header"><div><h3 id="invoice-chart-title">Faturas do cartão</h3><p>Total por mês da fatura registrada</p></div></div><div id="invoice-chart" class="chart-area" aria-live="polite"></div><p id="invoice-chart-note" class="chart-note"></p></article>
+          <article class="panel chart-panel chart-wide" aria-labelledby="category-month-chart-title"><div class="panel-header"><div><h3 id="category-month-chart-title">Gastos por categoria em cada mês</h3><p>Barras horizontais divididas pelas categorias das compras</p></div></div><div id="category-month-chart" class="category-month-chart" aria-live="polite"></div><div id="category-month-legend" class="chart-legend"></div><p class="chart-note">Débito e cartão pela data da compra. Pagamentos de fatura e transferências ficam fora.</p></article>
           <article class="panel chart-panel chart-wide" aria-labelledby="balance-chart-title"><div class="panel-header"><div><h3 id="balance-chart-title">Saldo das contas</h3><p>Saldo registrado nos dias disponíveis em cada extrato</p></div></div><div id="balance-chart" class="chart-area" aria-live="polite"></div><div id="balance-chart-legend" class="chart-legend"></div><p id="balance-chart-note" class="chart-note"></p></article>
         </div>
       </section>
@@ -72,7 +73,7 @@
         </section>
 
         <section class="panel categories-panel" aria-labelledby="category-title">
-        <div class="panel-header"><div><p class="eyebrow">PARA ONDE FOI</p><h2 id="category-title">Compras por categoria</h2><p class="category-caption">Débito e compras do cartão pela data da compra; sem pagamentos de fatura.</p></div><strong id="purchase-total" class="category-total">R$ 0,00</strong></div>
+        <div class="panel-header"><div><p class="eyebrow">PARA ONDE FOI</p><h2 id="category-title">Compras por categoria</h2><p class="category-caption">Débito e compras do cartão pela data da compra; sem pagamentos de fatura.</p></div><div class="category-view-controls"><label for="purchase-period">Período<select id="purchase-period"><option value="month">Mês selecionado</option><option value="all">Todo o histórico</option></select></label><strong id="purchase-total" class="category-total">R$ 0,00</strong></div></div>
           <div id="categories-list" class="categories-list"></div>
           <div class="ai-categories" aria-labelledby="ai-categories-title">
             <h3 id="ai-categories-title">Sugerir categorias com IA</h3>

@@ -171,6 +171,24 @@ class FinanceStoreTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             self.store.analytics("2026-10", "all", 25)
 
+    def test_monthly_category_spending_includes_card_without_bill_payment(self):
+        self.store.add(transaction(description="Mercado", category="Mercado", amount="50,00",
+                                   occurred_on="2026-09-15"))
+        self.store.add(transaction(description="Restaurante", category="Alimentação", amount="30,00"))
+        self.store.add_card_purchase({"bank": "inter", "account": "principal", "scope": "personal",
+                                      "invoice_month": "2026-11", "occurred_on": "2026-10-09",
+                                      "description": "Livro", "amount": "20,00", "category": "Educação"})
+        self.store.add(transaction(description="Compra PJ", category="Compras", amount="100,00",
+                                   scope="business"))
+        self.store.add(transaction(description="Fatura", category="Pagamento de fatura",
+                                   amount="80,00", excluded=True))
+        self.assertEqual(self.store.purchase_categories("personal", "2026-10")["purchase_total_cents"], 5000)
+        self.assertEqual(self.store.purchase_categories("personal")["purchase_total_cents"], 10000)
+        chart = self.store.analytics("2026-10", "all", 2)["category_spending"]
+        self.assertEqual([row["total_cents"] for row in chart], [5000, 15000])
+        self.assertEqual({item["category"]: item["amount_cents"] for item in chart[1]["categories"]},
+                         {"Compras": 10000, "Alimentação": 3000, "Educação": 2000})
+
     def test_reviewed_categories_include_card_purchases_without_recounting_bill_payment(self):
         account = self.store.add(transaction(category="Importado", amount="30,00"))
         self.store.add(transaction(category="Pagamento de fatura", amount="80,00", excluded=True))

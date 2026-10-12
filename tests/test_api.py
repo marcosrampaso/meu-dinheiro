@@ -193,6 +193,17 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(len(chart["balance_series"][0]["points"]), 2)
         self.assertEqual(self.call_api("/api/v1/analytics?month=2026-10&months=30")[0], 400)
 
+    def test_purchase_categories_can_show_month_or_full_history(self):
+        for occurred_on, category, amount in (("2026-09-09", "Mercado", "10,00"),
+                                              ("2026-10-09", "Alimentação", "20,00")):
+            self.store.add({"kind": "expense", "description": category, "amount": amount,
+                            "category": category, "occurred_on": occurred_on})
+        status, month = self.call_api("/api/v1/purchase-categories?scope=personal&month=2026-10")
+        self.assertEqual((status, month["purchase_total_cents"]), (200, 2000))
+        status, history = self.call_api("/api/v1/purchase-categories?scope=personal")
+        self.assertEqual((status, history["purchase_total_cents"]), (200, 3000))
+        self.assertEqual(self.call_api("/api/v1/purchase-categories?month=2026-13")[0], 400)
+
     def test_categorization_suggest_and_review_apply(self):
         self.call_api("/api/v1/transactions", "POST", {
             "kind": "expense", "description": "Mercado", "amount": "25,00",

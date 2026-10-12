@@ -2,6 +2,7 @@ const API = "/api/v1";
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const monthInput = document.querySelector("#month");
 const scopeInput = document.querySelector("#scope-view");
+const purchasePeriodInput = document.querySelector("#purchase-period");
 const form = document.querySelector("#transaction-form");
 const notice = document.querySelector("#notice");
 let editingId = null;
@@ -52,17 +53,20 @@ function setSummary(summary) {
   document.querySelector("#card-purchases").textContent = latestInvoice
     ? `${purchasesText} · última fatura ${latestInvoice}`
     : `${purchasesText} · sem faturas importadas`;
+}
+
+function renderPurchaseCategories(data) {
   const list = document.querySelector("#categories-list");
   list.replaceChildren();
-  document.querySelector("#purchase-total").textContent = money.format(summary.purchase_total_cents / 100);
-  if (summary.purchase_categories.length === 0) {
+  document.querySelector("#purchase-total").textContent = money.format(data.purchase_total_cents / 100);
+  if (data.purchase_categories.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty";
-    empty.textContent = "Nenhuma compra registrada neste mês.";
+    empty.textContent = data.month ? "Nenhuma compra registrada neste mês." : "Nenhuma compra registrada neste histórico.";
     list.append(empty);
     return;
   }
-  for (const entry of summary.purchase_categories) {
+  for (const entry of data.purchase_categories) {
     const row = document.createElement("div");
     row.className = "category-row";
     const label = document.createElement("div");
@@ -76,7 +80,7 @@ function setSummary(summary) {
     track.className = "bar-track";
     const fill = document.createElement("div");
     fill.className = "bar-fill";
-    fill.style.width = `${Math.round(100 * entry.amount_cents / summary.purchase_total_cents)}%`;
+    fill.style.width = `${Math.round(100 * entry.amount_cents / data.purchase_total_cents)}%`;
     track.append(fill);
     row.append(label, track);
     list.append(row);
@@ -131,17 +135,22 @@ function renderTransactions(items) {
   }
 }
 
-async function refresh() {
+async function refresh({ notify = true } = {}) {
   try {
     const month = encodeURIComponent(monthInput.value);
     const scope = encodeURIComponent(scopeInput.value);
-    const [summary, transactions] = await Promise.all([
+    const categoryMonth = purchasePeriodInput.value === "month" ? `&month=${month}` : "";
+    const [summary, transactions, categories] = await Promise.all([
       request(`/summary?month=${month}&scope=${scope}`),
       request(`/transactions?month=${month}&scope=${scope}`),
+      request(`/purchase-categories?scope=${scope}${categoryMonth}`),
     ]);
+    if (month !== encodeURIComponent(monthInput.value) || scope !== encodeURIComponent(scopeInput.value)
+        || categoryMonth !== (purchasePeriodInput.value === "month" ? `&month=${month}` : "")) return;
     setSummary(summary);
     renderTransactions(transactions.items);
-    document.dispatchEvent(new Event("finance-data-change"));
+    renderPurchaseCategories(categories);
+    if (notify) document.dispatchEvent(new Event("finance-data-change"));
   } catch (error) {
     showNotice(error.message, true);
   }
@@ -221,6 +230,20 @@ form.addEventListener("submit", async (event) => {
 document.querySelector("#cancel-button").addEventListener("click", resetForm);
 monthInput.addEventListener("change", () => { resetForm(); refresh(); });
 scopeInput.addEventListener("change", () => { resetForm(); refresh(); document.dispatchEvent(new Event("finance-scope-change")); });
+purchasePeriodInput.addEventListener("change", () => {
+  window.localStorage.setItem("purchase-period", purchasePeriodInput.value);
+  refresh({ notify: false });
+});
+let lastResumeRefresh = 0;
+function refreshOnResume() {
+  if (document.hidden || Date.now() - lastResumeRefresh < 1000) return;
+  lastResumeRefresh = Date.now();
+  refresh({ notify: false });
+  document.dispatchEvent(new Event("finance-view-resume"));
+}
+window.addEventListener("focus", refreshOnResume);
+document.addEventListener("visibilitychange", refreshOnResume);
 monthInput.value = todayLocal().slice(0, 7);
+purchasePeriodInput.value = window.localStorage.getItem("purchase-period") === "all" ? "all" : "month";
 resetForm();
 refresh();

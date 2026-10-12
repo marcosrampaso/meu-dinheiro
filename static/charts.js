@@ -1,5 +1,12 @@
 const SVG_NS = "http://www.w3.org/2000/svg";
 const chartColors = { income: "#2d9568", expense: "#e29564", invoice: "#5a7dc3", personal: "#2d9568", business: "#735bb8" };
+const categoryColors = {
+  "Transporte": "#256c53", "Alimentação": "#db8050", "Compras": "#647ac6",
+  "Outros": "#b45a81", "Mercado": "#a28b3d", "Viagens": "#4c91a8",
+  "Assinaturas": "#8668a9", "Saúde": "#719147", "Lazer": "#bd6a5d",
+  "Cuidados pessoais": "#5b8199", "Educação": "#947a62", "Moradia": "#b292c1",
+  "Serviços": "#678d79", "Impostos e taxas": "#b57597", "Importado": "#b5c0b6",
+};
 let chartRequestId = 0;
 
 function svgNode(tag, attributes = {}, label = "") {
@@ -121,6 +128,66 @@ function renderChartLegend(series) {
   }
 }
 
+function drawCategorySpending(rows) {
+  const target = document.querySelector("#category-month-chart");
+  const legend = document.querySelector("#category-month-legend");
+  target.replaceChildren();
+  legend.replaceChildren();
+  if (!rows.some(row => row.total_cents > 0)) {
+    emptyChart(target, "Sem compras registradas neste período.");
+    return;
+  }
+  const totals = new Map();
+  for (const row of rows) {
+    for (const item of row.categories) {
+      totals.set(item.category, (totals.get(item.category) || 0) + item.amount_cents);
+    }
+  }
+  const names = [...totals.keys()].sort((a, b) => totals.get(b) - totals.get(a) || a.localeCompare(b));
+  const colors = new Map(names.map(name => [name, categoryColors[name] || "#8293a0"]));
+  const maximum = Math.max(...rows.map(row => row.total_cents));
+  for (const row of rows) {
+    const line = document.createElement("div");
+    line.className = "category-month-row";
+    const month = document.createElement("span");
+    month.className = "category-month-label";
+    month.textContent = `${monthLabel(row.month)}/${row.month.slice(2, 4)}`;
+    const track = document.createElement("div");
+    track.className = "category-month-track";
+    if (row.total_cents) {
+      const bar = document.createElement("div");
+      bar.className = "category-month-bar";
+      bar.style.width = `${100 * row.total_cents / maximum}%`;
+      for (const item of row.categories) {
+        const segment = document.createElement("span");
+        segment.className = "category-month-segment";
+        segment.style.width = `${100 * item.amount_cents / row.total_cents}%`;
+        segment.style.backgroundColor = colors.get(item.category);
+        segment.title = `${item.category}: ${money.format(item.amount_cents / 100)} em ${row.month}`;
+        segment.setAttribute("aria-label", segment.title);
+        segment.tabIndex = 0;
+        bar.append(segment);
+      }
+      track.append(bar);
+    } else {
+      track.textContent = "Sem compras registradas";
+      track.classList.add("category-month-empty");
+    }
+    const total = document.createElement("strong");
+    total.className = "category-month-total";
+    total.textContent = row.total_cents ? money.format(row.total_cents / 100) : "—";
+    line.append(month, track, total);
+    target.append(line);
+  }
+  for (const name of names) {
+    const label = document.createElement("span");
+    const swatch = document.createElement("i");
+    swatch.style.backgroundColor = colors.get(name);
+    label.append(swatch, document.createTextNode(name));
+    legend.append(label);
+  }
+}
+
 async function refreshCharts() {
   const requestId = ++chartRequestId;
   const selectedMonth = monthInput.value;
@@ -141,19 +208,22 @@ async function refreshCharts() {
     drawBars(document.querySelector("#invoice-chart"), data.invoices, "Faturas por mês", [
       { key: "total_cents", label: "Fatura", color: chartColors.invoice },
     ]);
+    drawCategorySpending(data.category_spending);
     document.querySelector("#invoice-chart-note").textContent = "O mês corresponde à fatura; as compras não são somadas novamente às saídas da conta.";
     drawBalances(document.querySelector("#balance-chart"), data.balance_series);
     renderChartLegend(data.balance_series);
     document.querySelector("#balance-chart-note").textContent = "Cada ponto é o saldo de um dia com lançamentos no extrato. As contas Pessoal e PJ ficam em séries separadas.";
   } catch (error) {
     if (requestId !== chartRequestId) return;
-    for (const id of ["cashflow-chart", "invoice-chart", "balance-chart"]) {
+    for (const id of ["cashflow-chart", "invoice-chart", "category-month-chart", "balance-chart"]) {
       emptyChart(document.getElementById(id), "Não foi possível carregar o gráfico.");
     }
+    document.querySelector("#category-month-legend").replaceChildren();
     showNotice(error.message, true);
   }
 }
 
 document.addEventListener("finance-data-change", refreshCharts);
+document.addEventListener("finance-view-resume", refreshCharts);
 document.querySelector("#chart-months").addEventListener("change", refreshCharts);
 refreshCharts();
