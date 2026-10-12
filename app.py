@@ -17,6 +17,7 @@ from finance import FinanceStore, NotFoundError, PURCHASE_CATEGORIES, Validation
 from categorizer import CategorizationError, suggest_categories
 from importers import (account_balance_from_csv, account_daily_balances_from_csv,
                        account_period_from_csv, inspect_import, prepare_import)
+from xp_import import parse_xp_statement
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -25,6 +26,7 @@ STATIC_FILES = {
     "/styles.css": (BASE_DIR / "static" / "styles.css", "text/css; charset=utf-8"),
     "/app.js": (BASE_DIR / "static" / "app.js", "text/javascript; charset=utf-8"),
     "/import.js": (BASE_DIR / "static" / "import.js", "text/javascript; charset=utf-8"),
+    "/xp-import.js": (BASE_DIR / "static" / "xp-import.js", "text/javascript; charset=utf-8"),
     "/charts.js": (BASE_DIR / "static" / "charts.js", "text/javascript; charset=utf-8"),
     "/categories.js": (BASE_DIR / "static" / "categories.js", "text/javascript; charset=utf-8"),
     "/manual-card.js": (BASE_DIR / "static" / "manual-card.js", "text/javascript; charset=utf-8"),
@@ -221,6 +223,16 @@ class FinanceHandler(BaseHTTPRequestHandler):
                 data.get("filename"), data.get("content"),
                 data.get("content_base64"), data.get("pdf_password", ""),
             ))
+            return
+        if path == API_PREFIX + "/investments/imports/preview":
+            data = self._read_json(3_000_000)
+            entries = parse_xp_statement(data.get("filename"), data.get("content"))
+            self._json(HTTPStatus.OK, self.server.store.preview_xp_statement(entries))
+            return
+        if path == API_PREFIX + "/investments/imports":
+            data = self._read_json(3_000_000)
+            entries = parse_xp_statement(data.get("filename"), data.get("content"))
+            self._json(HTTPStatus.CREATED, self.server.store.import_xp_statement(entries))
             return
         if path == API_PREFIX + "/imports/preview":
             items = prepare_import(self._read_json(8_000_000))

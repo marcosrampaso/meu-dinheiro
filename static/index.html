@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/styles.css">
   <script src="/app.js" defer></script>
   <script src="/import.js" defer></script>
+  <script src="/xp-import.js" defer></script>
   <script src="/charts.js" defer></script>
   <script src="/categories.js" defer></script>
   <script src="/manual-card.js" defer></script>
@@ -108,6 +109,17 @@
           <div id="import-preview" class="import-preview" hidden></div>
         </form>
         <p class="import-tip">Pagamentos de fatura entram nas saídas do mês; compras do cartão aparecem separadamente, pela data da compra. Transferências entre suas contas, aplicações e cashback não contam como receita ou gasto. Confira a prévia antes de importar.</p>
+      </section>
+
+      <section class="panel import-panel" aria-labelledby="xp-import-title">
+        <div class="panel-header"><div><p class="eyebrow">INVESTIMENTOS</p><h2 id="xp-import-title">Importar extrato da XP</h2></div></div>
+        <p class="panel-intro">Envie o CSV da conta XP para guardar o histórico e confirmar transferências feitas pelo Inter. Entradas na XP e aplicações não entram novamente como receita ou despesa. A visão detalhada de investimentos virá depois.</p>
+        <form id="xp-import-form">
+          <div class="import-fields"><label>Extrato CSV da XP<input name="file" type="file" accept=".csv,text/csv" required></label></div>
+          <div id="xp-import-status" class="import-status" role="status" aria-live="polite"></div>
+          <div class="form-actions"><button class="primary-button" type="submit">Ver prévia da XP</button><button id="xp-import-button" class="secondary-button" type="button" disabled>Importar extrato XP</button></div>
+          <div id="xp-import-preview" class="import-preview" hidden></div>
+        </form>
       </section>
 
       <section id="manual-card" class="panel manual-card-panel" aria-labelledby="manual-card-title">

@@ -174,6 +174,17 @@ class FinanceStore:
                     PRIMARY KEY (source, scope, starts_on, ends_on)
                 )
             """)
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS investment_entries (
+                    import_key TEXT PRIMARY KEY,
+                    occurred_at TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    amount_cents INTEGER NOT NULL,
+                    balance_cents INTEGER NOT NULL,
+                    matched_transaction_id INTEGER,
+                    source TEXT NOT NULL DEFAULT 'XP'
+                )
+            """)
             memory_exists = connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'category_memory'"
             ).fetchone()
@@ -561,6 +572,74 @@ class FinanceStore:
                 )
                 matched += 1
         return matched
+
+    @staticmethod
+    def _xp_matches(connection: sqlite3.Connection, entries: list[dict]) -> list[dict]:
+        """Require one same-day, same-value Inter debit with the same payee words."""
+        from collections import defaultdict
+
+        incoming = defaultdict(list)
+        for entry in entries:
+            if entry["amount_cents"] > 0 and "pix recebido" in entry["description"].casefold():
+                incoming[(entry["occurred_on"], entry["amount_cents"])].append(entry)
+        if not incoming:
+            return []
+        outgoing = defaultdict(list)
+        for row in connection.execute("""
+            SELECT id, occurred_on, amount_cents, description, scope FROM transactions
+            WHERE kind = 'expense' AND excluded = 0 AND category = 'Importado'
+              AND invoice_month IS NULL AND source LIKE 'Inter · %'
+        """):
+            outgoing[(row["occurred_on"], row["amount_cents"])].append(row)
+        matches = []
+        for key, xp_rows in incoming.items():
+            inter_rows = outgoing.get(key, [])
+            if len(xp_rows) != 1 or len(inter_rows) != 1:
+                continue
+            xp, inter = xp_rows[0], inter_rows[0]
+            left, right = _description_words(xp["description"]), _description_words(inter["description"])
+            if len(left & right) < 2 or len(left & right) / len(left | right) < 0.8:
+                continue
+            matches.append({"xp_import_key": xp["import_key"], "transaction_id": inter["id"],
+                            "occurred_on": key[0], "amount_cents": key[1],
+                            "description": inter["description"], "scope": inter["scope"]})
+        return sorted(matches, key=lambda item: (item["occurred_on"], item["transaction_id"]))
+
+    def preview_xp_statement(self, entries: list[dict]) -> dict:
+        with self._connect() as connection:
+            matches = self._xp_matches(connection, entries)
+            known = connection.execute(
+                "SELECT COUNT(*) FROM investment_entries WHERE import_key IN (" +
+                ",".join("?" for _ in entries) + ")", [entry["import_key"] for entry in entries]
+            ).fetchone()[0]
+        return {"count": len(entries), "already_imported": known, "matches": matches,
+                "sample": entries[:5]}
+
+    def import_xp_statement(self, entries: list[dict]) -> dict:
+        imported = 0
+        matched = 0
+        with self._connect() as connection:
+            matches = self._xp_matches(connection, entries)
+            for entry in entries:
+                cursor = connection.execute("""
+                    INSERT INTO investment_entries
+                        (import_key, occurred_at, description, amount_cents, balance_cents)
+                    VALUES (:import_key, :occurred_at, :description, :amount_cents, :balance_cents)
+                    ON CONFLICT(import_key) DO NOTHING
+                """, entry)
+                imported += cursor.rowcount
+            for match in matches:
+                cursor = connection.execute("""
+                    UPDATE transactions SET category = 'Transferência para investimento', excluded = 1
+                    WHERE id = ? AND category = 'Importado' AND excluded = 0
+                """, (match["transaction_id"],))
+                if cursor.rowcount:
+                    connection.execute("""
+                        UPDATE investment_entries SET matched_transaction_id = ? WHERE import_key = ?
+                    """, (match["transaction_id"], match["xp_import_key"]))
+                    matched += 1
+        return {"imported": imported, "skipped": len(entries) - imported,
+                "matched_transfers": matched}
 
     def invoice_history(self, scope: str = "personal") -> list[dict]:
         scope = validate_scope(scope, allow_all=True)

@@ -13,6 +13,10 @@ from chatgpt_auth import ChatGPTAuth
 from finance import FinanceStore
 
 
+XP_CSV = ("Data;Hora;Descricao;Valor;Saldo\n"
+          "09/10/26;10:19:25;Pix recebido de Ana Exemplo Silva;R$ 12,34;R$ 12,34\n")
+
+
 class OutputBuffer(io.BytesIO):
     def close(self):
         pass
@@ -89,6 +93,16 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 403)
         status, _ = self.call_api("/api/v1/summary?month=2026-10", headers={"Host": "other.example"})
         self.assertEqual(status, 403)
+
+    def test_xp_import_preview_and_commit_keep_cash_flow_separate(self):
+        payload = {"filename": "xp.csv", "content": XP_CSV}
+        status, preview = self.call_api("/api/v1/investments/imports/preview", "POST", payload)
+        self.assertEqual((status, preview["count"], preview["matches"]), (200, 1, []))
+        status, result = self.call_api("/api/v1/investments/imports", "POST", payload)
+        self.assertEqual((status, result["imported"]), (201, 1))
+        status, result = self.call_api("/api/v1/investments/imports", "POST", payload)
+        self.assertEqual((status, result["skipped"]), (201, 1))
+        self.assertEqual(self.store.summary("2026-10")["income_cents"], 0)
 
     def test_manual_card_purchase_appears_in_invoice_without_cash_expense(self):
         data = {"bank": "inter", "account": "principal", "invoice_month": "2026-10",
