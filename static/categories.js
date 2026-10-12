@@ -136,7 +136,7 @@ function renderCategorySuggestions(items, remainingCount) {
     const name = document.createElement("strong");
     name.textContent = item.description;
     const meta = document.createElement("small");
-    meta.textContent = `${formatDate(item.occurred_on)} · ${money.format(item.amount_cents / 100)} · ${item.invoice_month ? "Cartão" : "Conta"}`;
+    meta.textContent = `${formatDate(item.occurred_on)} · ${money.format(item.amount_cents / 100)} · ${item.invoice_month ? "Cartão" : "Conta"} · ${item.suggestion_source === "learned" ? "Aprendido com você" : "Sugestão da IA"}`;
     details.append(name, meta);
     const select = document.createElement("select");
     select.setAttribute("aria-label", `Categoria de ${item.description}`);
@@ -151,7 +151,8 @@ function renderCategorySuggestions(items, remainingCount) {
     categoryList.append(row);
   }
   categoryPreview.hidden = false;
-  categoryStatus.textContent = `${items.length} sugestões para revisar.${remainingCount ? ` Mais ${remainingCount} compras aguardam outra rodada.` : ""}`;
+  const learnedCount = items.filter(item => item.suggestion_source === "learned").length;
+  categoryStatus.textContent = `${items.length} sugestões para revisar${learnedCount ? ` · ${learnedCount} aprendidas com você` : ""}.${remainingCount ? ` Mais ${remainingCount} compras aguardam outra rodada.` : ""}`;
 }
 
 suggestButton.addEventListener("click", async () => {

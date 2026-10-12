@@ -27,7 +27,7 @@ O banco padrão fica em `data/financas.db` e é criado na primeira execução. *
 - Importação de faturas PDF de cartão e extratos CSV/OFX, com prévia e proteção contra importação repetida.
 - Histórico de faturas por mês, banco e cartão.
 - Gráficos de entradas e saídas, faturas e saldos gerados dinamicamente a partir da API. Meses sem extrato não são apresentados como saldo zero.
-- Compras por categoria, com sugestões opcionais por IA que precisam de confirmação antes de serem salvas.
+- Compras por categoria, com sugestões opcionais por IA que precisam de confirmação antes de serem salvas. Categorias confirmadas são lembradas localmente para compras com a mesma descrição.
 - Registro manual de compras no cartão, vinculado ao mês da fatura.
 
 As **saídas das contas** incluem pagamentos de fatura. As compras feitas no cartão aparecem na data da compra e no histórico da fatura, sem serem somadas novamente ao fluxo de caixa. Transferências internas e cashback identificados ficam fora da receita consolidada. Confira as marcações após importar novos formatos de extrato.
@@ -46,9 +46,11 @@ Se a fatura atual ainda não puder ser exportada, use **Adicionar compra à fatu
 
 Clique em **Continuar com ChatGPT** na seção de categorias. O programa abre o login no navegador padrão; entre na sua conta e autorize o uso do plano. O retorno acontece em `http://127.0.0.1:<porta>/auth/callback`, no próprio servidor local. Depois, escolha o período, gere sugestões para até 40 compras, revise e clique em **Aplicar categorias**. O botão **Gerenciar uso** abre as configurações do ChatGPT. O uso compartilha os limites do seu plano; não usa a cobrança da API key.
 
+Ao aplicar uma categoria, o app a associa localmente à descrição normalizada do estabelecimento, separadamente para Pessoal e PJ. Escritas manuais e correções feitas na edição de lançamentos também atualizam essa memória; categorias de compras já classificadas antes desta versão são aproveitadas na primeira inicialização. A mesma descrição usa a categoria aprendida nas próximas sugestões, identificada como **Aprendido com você** na prévia, e ainda pode ser corrigida antes de salvar. Descrições genéricas como “Pix” não geram regra. Isso é uma memória do app no SQLite, não um treinamento permanente do modelo.
+
 As credenciais OAuth ficam somente em `data/chatgpt-auth.json`, com permissão de leitura restrita, e a pasta `data/` é ignorada pelo Git. O aplicativo renova o token quando necessário e usa apenas um modelo autorizado para a conta conectada. Ao desconectar, ele revoga a sessão renovável quando a rede permite e apaga os tokens locais. O arquivo `.env` de versões anteriores continua ignorado pelo Git, mas **não é mais lido pelo programa**.
 
-A integração usa a API Responses com `store: false` e `stream: true`. Envia apenas IDs e descrições tratadas das compras selecionadas; identificadores comuns nas descrições são mascarados. Valores, datas, saldos e arquivos originais não são enviados. A conexão não dá acesso às suas conversas do ChatGPT. A categorização nunca troca automaticamente para cobrança por API key.
+A integração usa a API Responses com `store: false` e `stream: true`. Envia apenas IDs e descrições tratadas das compras que ainda não têm categoria aprendida; identificadores comuns nas descrições são mascarados. Valores, datas, saldos, categorias confirmadas e arquivos originais não são enviados. A conexão não dá acesso às suas conversas do ChatGPT. A categorização nunca troca automaticamente para cobrança por API key.
 
 ## API
 

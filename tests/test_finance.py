@@ -197,6 +197,32 @@ class FinanceStoreTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             self.store.apply_purchase_categories([{"id": account["id"], "category": "Inexistente"}])
 
+    def test_approved_category_is_remembered_by_merchant_and_scope(self):
+        first = self.store.add(transaction(description="RESTAURANTE EXEMPLO 123456", category="Importado"))
+        self.assertEqual(self.store.apply_purchase_categories([
+            {"id": first["id"], "category": "Alimentação"}]), {"applied": 1, "skipped": 0})
+        personal = self.store.add(transaction(description="2027 restaurante-exemplo 987654", category="Importado"))
+        business = self.store.add(transaction(description="RESTAURANTE EXEMPLO", category="Importado",
+                                               scope="business"))
+        rows = [personal, business]
+        self.assertEqual(self.store.remembered_categories(rows), {personal["id"]: "Alimentação"})
+        self.store.update(first["id"], transaction(description="RESTAURANTE EXEMPLO 123456",
+                                                     category="Serviços"))
+        self.assertEqual(self.store.remembered_categories(rows), {personal["id"]: "Serviços"})
+        self.store.add(transaction(description="PIX 123456", category="Lazer"))
+        generic = self.store.add(transaction(description="PIX 987654", category="Importado"))
+        self.assertNotIn(generic["id"], self.store.remembered_categories([generic]))
+
+    def test_existing_approved_categories_seed_memory_once(self):
+        approved = self.store.add(transaction(description="Livraria Exemplo", category="Educação"))
+        with self.store._connect() as connection:
+            connection.execute("DROP TABLE category_memory")
+        reopened = FinanceStore(self.store.path)
+        self.assertTrue(self.store.path.with_name(self.store.path.name + ".before-category-memory.bak").exists())
+        fresh = reopened.add(transaction(description="LIVRARIA EXEMPLO", category="Importado"))
+        self.assertEqual(reopened.remembered_categories([fresh]), {fresh["id"]: "Educação"})
+        self.assertEqual(reopened.get(approved["id"])["category"], "Educação")
+
 
 if __name__ == "__main__":
     unittest.main()

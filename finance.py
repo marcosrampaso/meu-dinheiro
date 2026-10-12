@@ -25,6 +25,19 @@ PURCHASE_CATEGORIES = (
     "Impostos e taxas", "Serviços", "Outros",
 )
 CARD_BANKS = {"inter": "Inter", "bb": "Banco do Brasil"}
+GENERIC_MERCHANT_KEYS = {"pix", "compra", "debito", "credito", "pagamento", "transferencia",
+                         "cartao", "estabelecimento", "lancamento"}
+
+
+def merchant_key(description: str) -> str | None:
+    """Match the same merchant across accents, casing and changing reference numbers."""
+    plain = unicodedata.normalize("NFKD", description).encode("ascii", "ignore").decode().casefold()
+    plain = re.sub(r"\b(?:19|20)\d{2}\b", " ", plain)
+    plain = re.sub(r"\b\d{5,}\b", " ", plain)
+    key = " ".join(re.findall(r"[a-z0-9]+", plain))
+    if len(key) < 4 or key in GENERIC_MERCHANT_KEYS or not re.search(r"[a-z]{4,}", key):
+        return None
+    return key
 
 
 def parse_amount(value: str) -> int:
@@ -161,6 +174,57 @@ class FinanceStore:
                     PRIMARY KEY (source, scope, starts_on, ends_on)
                 )
             """)
+            memory_exists = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'category_memory'"
+            ).fetchone()
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS category_memory (
+                    scope TEXT NOT NULL CHECK (scope IN ('personal', 'business')),
+                    merchant_key TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (scope, merchant_key)
+                )
+            """)
+            if not memory_exists:
+                for row in connection.execute(
+                    "SELECT description, scope, category FROM transactions "
+                    "WHERE kind = 'expense' AND excluded = 0 ORDER BY id"
+                ):
+                    self._remember_category(connection, row["description"], row["scope"], row["category"])
+
+    @staticmethod
+    def _remember_category(connection: sqlite3.Connection, description: str,
+                           scope: str, category: str) -> None:
+        key = merchant_key(description)
+        if key and category in PURCHASE_CATEGORIES:
+            connection.execute("""
+                INSERT INTO category_memory (scope, merchant_key, category) VALUES (?, ?, ?)
+                ON CONFLICT (scope, merchant_key) DO UPDATE SET
+                    category = excluded.category, updated_at = CURRENT_TIMESTAMP
+            """, (scope, key, category))
+
+    def remembered_categories(self, rows: list[dict]) -> dict[int, str]:
+        """Return locally approved categories for the exact normalized merchant."""
+        keys = {merchant_key(row["description"]) for row in rows}
+        keys.discard(None)
+        if not keys:
+            return {}
+        placeholders = ", ".join("?" for _ in keys)
+        with self._connect() as connection:
+            remembered = {
+                (row["scope"], row["merchant_key"]): row["category"]
+                for row in connection.execute(
+                    f"SELECT scope, merchant_key, category FROM category_memory "
+                    f"WHERE merchant_key IN ({placeholders})", tuple(keys))
+            }
+        matches = {}
+        for row in rows:
+            key = merchant_key(row["description"])
+            category = remembered.get((row["scope"], key))
+            if category:
+                matches[row["id"]] = category
+        return matches
 
     def _backup_before_migration(self) -> None:
         if not self.path.exists():
@@ -168,9 +232,15 @@ class FinanceStore:
         with closing(sqlite3.connect(self.path)) as source:
             columns = {row[1] for row in source.execute("PRAGMA table_info(transactions)")}
             previous_columns = {"excluded", "source", "import_key", "invoice_month"}
-            if not columns or previous_columns | {"scope"} <= columns:
+            if not columns:
                 return
-            suffix = ".before-scope.bak" if previous_columns <= columns else ".before-import.bak"
+            if previous_columns | {"scope"} <= columns:
+                if source.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                                  "AND name = 'category_memory'").fetchone():
+                    return
+                suffix = ".before-category-memory.bak"
+            else:
+                suffix = ".before-scope.bak" if previous_columns <= columns else ".before-import.bak"
             backup_path = self.path.with_name(self.path.name + suffix)
             if backup_path.exists():
                 return
@@ -195,6 +265,8 @@ class FinanceStore:
                 "VALUES (:kind, :description, :category, :amount_cents, :occurred_on, :excluded, :scope)", item,
             )
             transaction_id = cursor.lastrowid
+            if item["kind"] == "expense" and not item["excluded"]:
+                self._remember_category(connection, item["description"], item["scope"], item["category"])
         return self.get(transaction_id)
 
     def add_card_purchase(self, data: dict) -> dict:
@@ -221,6 +293,7 @@ class FinanceStore:
                 {**item, "source": source, "invoice_month": invoice_month},
             )
             transaction_id = cursor.lastrowid
+            self._remember_category(connection, item["description"], item["scope"], item["category"])
         return self.get(transaction_id)
 
     def get(self, transaction_id: int) -> dict:
@@ -241,6 +314,8 @@ class FinanceStore:
             )
             if cursor.rowcount == 0:
                 raise NotFoundError("Lançamento não encontrado.")
+            if item["kind"] == "expense" and not item["excluded"]:
+                self._remember_category(connection, item["description"], item["scope"], item["category"])
         return self.get(transaction_id)
 
     def delete(self, transaction_id: int) -> None:
@@ -524,12 +599,22 @@ class FinanceStore:
         applied = 0
         with self._connect() as connection:
             for item in suggestions:
+                original = connection.execute(
+                    "SELECT description, scope FROM transactions WHERE id = ? AND kind = 'expense' "
+                    "AND excluded = 0 AND category = 'Importado' AND (? = 'all' OR scope = ?)",
+                    (item["id"], scope, scope),
+                ).fetchone()
+                if original is None:
+                    continue
                 cursor = connection.execute(
                     "UPDATE transactions SET category = ? WHERE id = ? AND kind = 'expense' "
                     "AND excluded = 0 AND category = 'Importado' AND (? = 'all' OR scope = ?)",
                     (item["category"], item["id"], scope, scope),
                 )
                 applied += cursor.rowcount
+                if cursor.rowcount:
+                    self._remember_category(connection, original["description"], original["scope"],
+                                            item["category"])
         return {"applied": applied, "skipped": len(suggestions) - applied}
 
     def invoice_items(self, month: str, source: str, scope: str = "personal") -> list[dict]:

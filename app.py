@@ -236,11 +236,15 @@ class FinanceHandler(BaseHTTPRequestHandler):
             data = self._read_json()
             rows, count = self.server.store.uncategorized_purchases(
                 data.get("scope", "personal"), data.get("month"))
-            token, model = self.server.auth.inference_credentials() if rows else ("", None)
-            suggestions = suggest_categories(rows, token, model) if rows else []
+            learned = self.server.store.remembered_categories(rows)
+            unknown = [row for row in rows if row["id"] not in learned]
+            token, model = self.server.auth.inference_credentials() if unknown else ("", None)
+            suggestions = suggest_categories(unknown, token, model) if unknown else []
             by_id = {item["id"]: item["category"] for item in suggestions}
-            self._json(HTTPStatus.OK, {"items": [{**row, "suggested_category": by_id[row["id"]]}
-                                                  for row in rows],
+            self._json(HTTPStatus.OK, {"items": [
+                {**row, "suggested_category": learned.get(row["id"], by_id.get(row["id"])),
+                 "suggestion_source": "learned" if row["id"] in learned else "model"}
+                for row in rows],
                                        "remaining_count": count - len(rows), "model": model})
             return
         if path == API_PREFIX + "/categorization/apply":

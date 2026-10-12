@@ -76,7 +76,7 @@
           <div id="categories-list" class="categories-list"></div>
           <div class="ai-categories" aria-labelledby="ai-categories-title">
             <h3 id="ai-categories-title">Sugerir categorias com IA</h3>
-            <p>Conecte seu plano ChatGPT para classificar compras. O modelo recebe apenas IDs e descrições tratadas; valores, datas, saldos e arquivos não são enviados. Confira as sugestões antes de salvar.</p>
+            <p>Conecte seu plano ChatGPT para classificar compras. Suas categorias confirmadas ficam salvas neste dispositivo e são reutilizadas quando a descrição da compra se repete. O modelo recebe apenas IDs e descrições tratadas das compras ainda desconhecidas; valores, datas, saldos e arquivos não são enviados. Confira as sugestões antes de salvar.</p>
             <div class="chatgpt-connection"><button id="connect-chatgpt" class="secondary-button" type="button">Continuar com ChatGPT</button><button id="switch-chatgpt" class="text-button" type="button" hidden>Usar outra conta</button><button id="disconnect-chatgpt" class="text-button" type="button" hidden>Desconectar</button><a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">Gerenciar uso</a></div>
             <p id="chatgpt-connection-status" class="ai-category-status" role="status" aria-live="polite"></p>
             <div class="ai-category-controls"><label>Compras de <select id="categorization-range"><option value="all">Todo o histórico</option><option value="month">Este mês</option></select></label><button id="suggest-categories" class="secondary-button" type="button">Gerar sugestões</button></div>

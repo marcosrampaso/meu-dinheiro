@@ -231,6 +231,39 @@ class ApiTests(unittest.TestCase):
         self.assertIn("Conecte o ChatGPT", result["error"])
         suggest.assert_not_called()
 
+    def test_categorization_reuses_approved_choice_and_sends_only_unknown_to_model(self):
+        approved = self.store.add({"kind": "expense", "description": "RESTAURANTE EXEMPLO",
+                                   "amount": "20,00", "category": "Importado", "occurred_on": "2026-10-09"})
+        self.store.apply_purchase_categories([{"id": approved["id"], "category": "Alimentação"}])
+        remembered = self.store.add({"kind": "expense", "description": "restaurante-exemplo",
+                                     "amount": "21,00", "category": "Importado", "occurred_on": "2026-10-10"})
+        unknown = self.store.add({"kind": "expense", "description": "Outra Loja",
+                                  "amount": "22,00", "category": "Importado", "occurred_on": "2026-10-11"})
+        with patch.object(self.server.auth, "inference_credentials", return_value=("test-token", "gpt-6-luna")):
+            with patch("app.suggest_categories", return_value=[{"id": unknown["id"],
+                                                                   "category": "Compras"}]) as suggest:
+                status, result = self.call_api("/api/v1/categorization/suggest", "POST", {})
+        self.assertEqual(status, 200)
+        self.assertEqual([row["id"] for row in suggest.call_args.args[0]], [unknown["id"]])
+        by_id = {item["id"]: item for item in result["items"]}
+        self.assertEqual((by_id[remembered["id"]]["suggested_category"],
+                          by_id[remembered["id"]]["suggestion_source"]), ("Alimentação", "learned"))
+        self.assertEqual((by_id[unknown["id"]]["suggested_category"],
+                          by_id[unknown["id"]]["suggestion_source"]), ("Compras", "model"))
+
+    def test_fully_learned_batch_uses_no_chatgpt_call(self):
+        first = self.store.add({"kind": "expense", "description": "Livraria Exemplo",
+                                "amount": "20,00", "category": "Importado", "occurred_on": "2026-10-09"})
+        self.store.apply_purchase_categories([{"id": first["id"], "category": "Educação"}])
+        self.store.add({"kind": "expense", "description": "LIVRARIA EXEMPLO",
+                        "amount": "30,00", "category": "Importado", "occurred_on": "2026-10-10"})
+        with patch.object(self.server.auth, "inference_credentials") as credentials:
+            with patch("app.suggest_categories") as suggest:
+                status, result = self.call_api("/api/v1/categorization/suggest", "POST", {})
+        self.assertEqual((status, result["items"][0]["suggested_category"]), (200, "Educação"))
+        credentials.assert_not_called()
+        suggest.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
