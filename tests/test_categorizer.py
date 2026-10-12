@@ -7,7 +7,8 @@ from categorizer import CategorizationError, suggest_categories
 
 class FakeResponse:
     def __init__(self, body):
-        self.body = ("data: " + json.dumps(body) + "\n\n").encode("utf-8")
+        events = body if isinstance(body, list) else [body]
+        self.body = "".join("data: " + json.dumps(event) + "\n\n" for event in events).encode("utf-8")
 
     def __enter__(self):
         return self
@@ -69,6 +70,30 @@ class CategorizerTests(unittest.TestCase):
                 {"type": "response.failed", "response": {"error": {
                     "code": "subscription_sharing_usage_limit_exceeded"}}})):
             with self.assertRaisesRegex(CategorizationError, "Limite de uso"):
+                suggest_categories(rows, "test-oauth-token", "gpt-6-luna")
+
+    def test_reads_streamed_text_when_completed_response_has_no_output(self):
+        rows = [{"id": 1, "description": "Café"}]
+        answer = json.dumps({"items": [{"id": 1, "category": "Alimentação"}]})
+        events = [
+            {"type": "response.output_text.delta", "output_index": 0, "content_index": 0,
+             "delta": answer[:15]},
+            {"type": "response.output_text.delta", "output_index": 0, "content_index": 0,
+             "delta": answer[15:]},
+            {"type": "response.output_text.done", "output_index": 0, "content_index": 0,
+             "text": answer},
+            {"type": "response.completed", "response": {"status": "completed", "output": []}},
+        ]
+        with patch("categorizer.urlopen", return_value=FakeResponse(events)):
+            self.assertEqual(suggest_categories(rows, "test-oauth-token", "gpt-6-luna"),
+                             [{"id": 1, "category": "Alimentação"}])
+
+    def test_streamed_text_without_completion_is_rejected(self):
+        rows = [{"id": 1, "description": "Café"}]
+        events = [{"type": "response.output_text.delta", "delta":
+                   json.dumps({"items": [{"id": 1, "category": "Alimentação"}]})}]
+        with patch("categorizer.urlopen", return_value=FakeResponse(events)):
+            with self.assertRaisesRegex(CategorizationError, "antes da resposta completa"):
                 suggest_categories(rows, "test-oauth-token", "gpt-6-luna")
 
 

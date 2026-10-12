@@ -66,9 +66,11 @@ def _request_body(rows: list[dict], model: str) -> dict:
     }
 
 
-def _read_completed_response(response) -> dict:
-    """Consume all SSE events and trust only a completed response."""
+def _read_completed_response(response) -> tuple[dict, str]:
+    """Collect streamed text, but trust it only after response.completed."""
     data_lines = []
+    text_deltas: dict[tuple[int, int], list[str]] = {}
+    completed_text: dict[tuple[int, int], str] = {}
     for raw_line in response:
         line = raw_line.decode("utf-8").rstrip("\r\n")
         if line.startswith("data:"):
@@ -82,8 +84,17 @@ def _read_completed_response(response) -> dict:
             raise CategorizationError("O ChatGPT devolveu uma resposta inválida.") from exc
         data_lines.clear()
         event_type = event.get("type")
+        if event_type in ("response.output_text.delta", "response.output_text.done"):
+            key = (event.get("output_index", 0), event.get("content_index", 0))
+            if event_type == "response.output_text.delta":
+                text_deltas.setdefault(key, []).append(event.get("delta", ""))
+            else:
+                completed_text[key] = event.get("text", "")
         if event_type == "response.completed":
-            return event["response"]
+            keys = text_deltas.keys() | completed_text.keys()
+            streamed_text = "".join(completed_text.get(key, "".join(text_deltas.get(key, [])))
+                                    for key in sorted(keys))
+            return event["response"], streamed_text
         if event_type == "response.failed":
             error = (event.get("response") or {}).get("error") or {}
             if error.get("code") == "subscription_sharing_usage_limit_exceeded":
@@ -105,7 +116,7 @@ def suggest_categories(rows: list[dict], access_token: str, model: str) -> list[
                       method="POST")
     try:
         with urlopen(request, timeout=90) as response:
-            payload = _read_completed_response(response)
+            payload, streamed_text = _read_completed_response(response)
     except HTTPError as exc:
         if exc.code in (401, 403):
             raise CategorizationError("Seu plano ChatGPT não autorizou esta chamada. Conecte novamente.") from exc
@@ -119,7 +130,7 @@ def suggest_categories(rows: list[dict], access_token: str, model: str) -> list[
             raise ValueError("Resposta incompleta")
         chunks = [part["text"] for output in payload["output"] if output.get("type") == "message"
                   for part in output.get("content", []) if part.get("type") == "output_text"]
-        result = json.loads("".join(chunks))
+        result = json.loads("".join(chunks) or streamed_text)
         suggestions = result["items"]
         expected_ids = {row["id"] for row in rows}
         if (not isinstance(suggestions, list) or len(suggestions) != len(rows)
