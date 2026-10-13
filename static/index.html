@@ -245,10 +245,11 @@
         <div class="manual-investment-grid">
           <section class="panel" aria-labelledby="manual-flow-title">
             <div class="panel-header"><div><p class="eyebrow">REGISTRO MANUAL</p><h2 id="manual-flow-title">Aportes e resgates</h2></div></div>
-            <p class="panel-intro">Informe quando transferiu dinheiro para a XP ou retirou. Aplicações entre fundos dentro da XP não são novos aportes.</p>
-            <form id="manual-flow-form" class="planning-form"><label>Data<input name="occurred_on" type="date" required></label><label>Tipo<select name="kind"><option value="deposit">Aporte</option><option value="withdrawal">Resgate</option></select></label><label>Valor (R$)<input name="amount" inputmode="decimal" placeholder="0,00" required></label><div class="manual-form-actions"><button class="secondary-button" type="submit">Adicionar</button><button class="text-button" type="button" data-cancel hidden>Cancelar edição</button></div></form>
+            <p class="panel-intro">Escolha um ativo da sua posição XP e registre cada aplicação ou resgate para formar o histórico. Se foi só uma transferência para a conta XP, deixe “Saldo da XP”.</p>
+            <form id="manual-flow-form" class="planning-form"><label>Data<input name="occurred_on" type="date" required></label><label>Tipo<select name="kind"><option value="deposit">Aporte</option><option value="withdrawal">Resgate</option></select></label><label>Investimento<select name="asset_id"><option value="">Saldo da XP · sem ativo</option></select></label><label>Valor (R$)<input name="amount" inputmode="decimal" placeholder="0,00" required></label><label class="checkbox-line manual-external"><input name="external" type="checkbox" checked><span>Dinheiro entrou ou saiu da XP (além da aplicação no ativo)</span></label><div class="manual-form-actions"><button class="secondary-button" type="submit">Adicionar</button><button class="text-button" type="button" data-cancel hidden>Cancelar edição</button></div></form>
             <div id="manual-flow-status" class="import-status" role="status" aria-live="polite"></div><div id="manual-flow-list" class="manual-investment-list"></div>
-            <p class="chart-note">Se um aporte manual também aparecer no CSV da XP com a mesma data e valor, ele é contado uma vez só.</p>
+            <div id="manual-asset-totals" class="manual-asset-totals"></div>
+            <p class="chart-note">Aplicações feitas com dinheiro que já estava na XP entram apenas no histórico do ativo. Marque a caixa quando houve também dinheiro novo ou retirada da XP; assim os gráficos de aportes e rendimento são ajustados. Um fluxo igual ao CSV na mesma data é contado uma vez só.</p>
           </section>
           <section class="panel" aria-labelledby="manual-snapshot-title">
             <div class="panel-header"><div><p class="eyebrow">FOTOGRAFIA DA CARTEIRA</p><h2 id="manual-snapshot-title">Saldo total em uma data</h2></div></div>

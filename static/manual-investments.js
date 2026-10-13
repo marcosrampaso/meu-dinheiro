@@ -18,6 +18,8 @@ function cancelManualFlowEdit() {
   editingManualFlowId = null;
   manualFlowForm.reset();
   manualFlowForm.elements.occurred_on.value = todayLocal();
+  manualFlowForm.elements.asset_id.value = "";
+  manualFlowForm.elements.external.checked = true;
   manualFlowForm.querySelector('button[type="submit"]').textContent = "Adicionar";
   manualFlowForm.querySelector("[data-cancel]").hidden = true;
 }
@@ -57,6 +59,30 @@ function manualRow(labelText, onEdit, onDelete, warning = "") {
 }
 
 function renderManualInvestments(data) {
+  const assetSelect = manualFlowForm.elements.asset_id;
+  const selectedAsset = assetSelect.value;
+  assetSelect.replaceChildren();
+  const cashOption = document.createElement("option");
+  cashOption.value = "";
+  cashOption.textContent = "Saldo da XP · sem ativo";
+  assetSelect.append(cashOption);
+  for (const asset of data.assets) {
+    const option = document.createElement("option");
+    option.value = String(asset.id);
+    option.textContent = `${asset.name} · ${asset.category}`;
+    assetSelect.append(option);
+  }
+  if (selectedAsset && ![...assetSelect.options].some(option => option.value === selectedAsset)) {
+    const historical = data.flows.find(flow => String(flow.asset_id) === selectedAsset);
+    if (historical) {
+      const option = document.createElement("option");
+      option.value = selectedAsset;
+      option.textContent = `${historical.asset_name} · fora da posição atual`;
+      assetSelect.append(option);
+    }
+  }
+  assetSelect.value = selectedAsset && [...assetSelect.options].some(option => option.value === selectedAsset)
+    ? selectedAsset : "";
   const flows = document.querySelector("#manual-flow-list");
   flows.replaceChildren();
   if (!data.flows.length) {
@@ -67,11 +93,19 @@ function renderManualInvestments(data) {
   }
   for (const flow of data.flows) {
     flows.append(manualRow(
-      `${flow.kind === "deposit" ? "Aporte" : "Resgate"} · ${formatDate(flow.occurred_on)} · ${money.format(flow.amount_cents / 100)}`,
+      `${flow.kind === "deposit" ? "Aporte" : "Resgate"} · ${flow.asset_name || "Saldo da XP"} · ${formatDate(flow.occurred_on)} · ${money.format(flow.amount_cents / 100)}`,
       () => {
         editingManualFlowId = flow.id;
         manualFlowForm.elements.occurred_on.value = flow.occurred_on;
         manualFlowForm.elements.kind.value = flow.kind;
+        if (flow.asset_id && ![...assetSelect.options].some(option => option.value === String(flow.asset_id))) {
+          const option = document.createElement("option");
+          option.value = String(flow.asset_id);
+          option.textContent = `${flow.asset_name} · fora da posição atual`;
+          assetSelect.append(option);
+        }
+        assetSelect.value = flow.asset_id === null ? "" : String(flow.asset_id);
+        manualFlowForm.elements.external.checked = flow.external;
         manualFlowForm.elements.amount.value = amountInput(flow.amount_cents);
         manualFlowForm.querySelector('button[type="submit"]').textContent = "Salvar edição";
         manualFlowForm.querySelector("[data-cancel]").hidden = false;
@@ -85,8 +119,30 @@ function renderManualInvestments(data) {
           manualStatus("manual-flow-status", "Registro excluído.");
         } catch (error) { manualStatus("manual-flow-status", error.message, true); }
       },
-      flow.matched_import ? "Já aparece no CSV da XP; não foi somado novamente." : ""
+      flow.matched_import ? "Já aparece no CSV da XP; contado uma vez." :
+        flow.external ? "Dinheiro entrou ou saiu da XP." : "Aplicação ou resgate dentro da XP; não soma novo dinheiro."
     ));
+  }
+  const totals = document.querySelector("#manual-asset-totals");
+  totals.replaceChildren();
+  const heading = document.createElement("h3");
+  heading.textContent = "Histórico por investimento";
+  totals.append(heading);
+  if (!data.assets.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = "Importe uma posição detalhada da XP para preencher a lista de investimentos.";
+    totals.append(empty);
+  }
+  for (const asset of data.asset_totals) {
+    const row = document.createElement("div");
+    row.className = "manual-investment-row";
+    const name = document.createElement("strong");
+    name.textContent = asset.name;
+    const amount = document.createElement("span");
+    amount.textContent = `${money.format(asset.deposited_cents / 100)} aplicado · ${money.format(asset.withdrawn_cents / 100)} resgatado`;
+    row.append(name, amount);
+    totals.append(row);
   }
   const snapshots = document.querySelector("#manual-snapshot-list");
   snapshots.replaceChildren();
@@ -142,6 +198,8 @@ manualFlowForm.addEventListener("submit", async event => {
       occurred_on: manualFlowForm.elements.occurred_on.value,
       kind: manualFlowForm.elements.kind.value,
       amount: manualFlowForm.elements.amount.value,
+      asset_id: manualFlowForm.elements.asset_id.value ? Number(manualFlowForm.elements.asset_id.value) : null,
+      external: manualFlowForm.elements.external.checked,
     }) });
     cancelManualFlowEdit();
     manualStatus("manual-flow-status", "Aporte ou resgate salvo.");
@@ -167,6 +225,9 @@ manualSnapshotForm.addEventListener("submit", async event => {
 });
 
 manualFlowForm.querySelector("[data-cancel]").addEventListener("click", cancelManualFlowEdit);
+manualFlowForm.elements.asset_id.addEventListener("change", () => {
+  manualFlowForm.elements.external.checked = !manualFlowForm.elements.asset_id.value;
+});
 manualSnapshotForm.querySelector("[data-cancel]").addEventListener("click", cancelManualSnapshotEdit);
 cancelManualFlowEdit();
 cancelManualSnapshotEdit();

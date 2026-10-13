@@ -46,21 +46,30 @@ def save_manual_flow(store: FinanceStore, data: dict, flow_id: int | None = None
     if kind not in ("deposit", "withdrawal"):
         raise ValidationError("Escolha aporte ou resgate.")
     amount_cents = parse_amount(data.get("amount"))
+    asset_id = data.get("asset_id")
+    if asset_id is not None:
+        asset_id = _valid_id(asset_id)
+    external = data.get("external", asset_id is None)
+    if not isinstance(external, bool) or (asset_id is None and not external):
+        raise ValidationError("Informe se o dinheiro entrou ou saiu da XP.")
     with store._connect() as connection:
+        if asset_id is not None and not connection.execute(
+                "SELECT 1 FROM investment_assets WHERE id = ?", (asset_id,)).fetchone():
+            raise ValidationError("Investimento não encontrado na carteira.")
         if flow_id is None:
             cursor = connection.execute("""INSERT INTO investment_manual_flows
-                (occurred_on, kind, amount_cents) VALUES (?, ?, ?)""",
-                (occurred_on, kind, amount_cents))
+                (occurred_on, kind, amount_cents, asset_id, external) VALUES (?, ?, ?, ?, ?)""",
+                (occurred_on, kind, amount_cents, asset_id, int(external)))
             flow_id = cursor.lastrowid
         else:
             _valid_id(flow_id)
             cursor = connection.execute("""UPDATE investment_manual_flows
-                SET occurred_on = ?, kind = ?, amount_cents = ? WHERE id = ?""",
-                (occurred_on, kind, amount_cents, flow_id))
+                SET occurred_on = ?, kind = ?, amount_cents = ?, asset_id = ?, external = ? WHERE id = ?""",
+                (occurred_on, kind, amount_cents, asset_id, int(external), flow_id))
             if not cursor.rowcount:
                 raise ValidationError("Aporte ou resgate não encontrado.")
     return {"id": flow_id, "occurred_on": occurred_on, "kind": kind,
-            "amount_cents": amount_cents}
+            "amount_cents": amount_cents, "asset_id": asset_id, "external": external}
 
 
 def delete_manual_flow(store: FinanceStore, flow_id: int) -> None:
@@ -92,9 +101,17 @@ def delete_manual_snapshot(store: FinanceStore, as_of: str) -> None:
 def manual_overview(store: FinanceStore) -> dict:
     with store._connect() as connection:
         flows = [dict(row) for row in connection.execute(
-            "SELECT id, occurred_on, kind, amount_cents FROM investment_manual_flows ORDER BY occurred_on DESC, id DESC")]
+            """SELECT f.id, f.occurred_on, f.kind, f.amount_cents, f.asset_id, f.external,
+                      a.name AS asset_name, a.category AS asset_category
+               FROM investment_manual_flows AS f LEFT JOIN investment_assets AS a ON a.id = f.asset_id
+               ORDER BY f.occurred_on DESC, f.id DESC""")]
         snapshots = [dict(row) for row in connection.execute(
             "SELECT as_of, total_cents FROM investment_manual_snapshots ORDER BY as_of DESC")]
+        assets = [dict(row) for row in connection.execute("""SELECT a.id, a.name, a.category
+            FROM investment_assets AS a JOIN investment_positions AS p
+              ON p.name = a.name AND p.category = a.category
+            WHERE p.as_of = (SELECT MAX(as_of) FROM investment_snapshots)
+            ORDER BY p.value_cents DESC, a.name""")]
         imported = [dict(row) for row in connection.execute("""SELECT e.occurred_at, e.description,
             e.amount_cents, c.classification FROM investment_entries AS e
             LEFT JOIN investment_flow_classifications AS c ON c.import_key = e.import_key""")]
@@ -104,7 +121,14 @@ def manual_overview(store: FinanceStore) -> dict:
     for flow in reversed(flows):
         amount = flow["amount_cents"] * (1 if flow["kind"] == "deposit" else -1)
         key = (flow["occurred_on"], amount)
-        flow["matched_import"] = matching[key] > 0
+        flow["external"] = bool(flow["external"])
+        flow["matched_import"] = flow["external"] and matching[key] > 0
         if flow["matched_import"]:
             matching[key] -= 1
-    return {"flows": flows, "snapshots": snapshots}
+    totals = {asset["id"]: {**asset, "deposited_cents": 0, "withdrawn_cents": 0} for asset in assets}
+    for flow in flows:
+        if flow["asset_id"] in totals:
+            key = "deposited_cents" if flow["kind"] == "deposit" else "withdrawn_cents"
+            totals[flow["asset_id"]][key] += flow["amount_cents"]
+    return {"flows": flows, "snapshots": snapshots, "assets": assets,
+            "asset_totals": list(totals.values())}

@@ -224,6 +224,23 @@ class FinanceStore:
                 )
             """)
             connection.execute("""
+                CREATE TABLE IF NOT EXISTS investment_assets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    UNIQUE(category, name)
+                )
+            """)
+            connection.execute("""INSERT OR IGNORE INTO investment_assets (name, category)
+                SELECT DISTINCT name, category FROM investment_positions""")
+            flow_columns = {row["name"] for row in connection.execute(
+                "PRAGMA table_info(investment_manual_flows)")}
+            if "asset_id" not in flow_columns:
+                connection.execute("ALTER TABLE investment_manual_flows ADD COLUMN asset_id INTEGER REFERENCES investment_assets(id)")
+            if "external" not in flow_columns:
+                connection.execute("""ALTER TABLE investment_manual_flows ADD COLUMN external INTEGER NOT NULL
+                    DEFAULT 1 CHECK (external IN (0, 1))""")
+            connection.execute("""
                 CREATE TABLE IF NOT EXISTS market_quotes (
                     source TEXT NOT NULL,
                     identifier TEXT NOT NULL,
@@ -771,6 +788,8 @@ class FinanceStore:
                     (as_of, name, category, value_cents, cost_cents, quantity, net_cents)
                 VALUES (:as_of, :name, :category, :value_cents, :cost_cents, :quantity, :net_cents)
             """, [{**asset, "as_of": snapshot["as_of"]} for asset in snapshot["assets"]])
+            connection.executemany("""INSERT OR IGNORE INTO investment_assets (name, category)
+                VALUES (:name, :category)""", snapshot["assets"])
         return {"as_of": snapshot["as_of"], "total_cents": snapshot["total_cents"],
                 "asset_count": len(snapshot["assets"]), "replaced": replacing}
 
@@ -816,7 +835,7 @@ class FinanceStore:
         latest_totals.update({row["as_of"]: {**row, "source": "manual"} for row in manual_positions})
         latest_total = max(latest_totals.values(), key=lambda row: row["as_of"]) if latest_totals else None
         for flow in manual["flows"]:
-            if flow["occurred_on"] >= last_day or flow["matched_import"]:
+            if flow["occurred_on"] >= last_day or not flow["external"] or flow["matched_import"]:
                 continue
             rows.append({"occurred_at": flow["occurred_on"] + "T12:00:00",
                          "description": "Aporte manual" if flow["kind"] == "deposit" else "Resgate manual",

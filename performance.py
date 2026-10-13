@@ -93,7 +93,7 @@ def performance_overview(store: FinanceStore) -> dict:
                 "message": "Revise as transferências XP antes de calcular a rentabilidade."}
     manual_flows = manual_overview(store)["flows"]
     for flow in manual_flows:
-        if first < flow["occurred_on"] <= last and not flow["matched_import"]:
+        if first < flow["occurred_on"] <= last and flow["external"] and not flow["matched_import"]:
             entries.append({"occurred_at": flow["occurred_on"] + "T12:00:00",
                             "amount_cents": flow["amount_cents"] * (1 if flow["kind"] == "deposit" else -1),
                             "classification": "external"})
