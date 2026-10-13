@@ -160,19 +160,27 @@ function highlightCategory(name, totals) {
     button.classList.toggle("is-selected", button.dataset.category === name);
   }
   chartInsight("category-month-insight", name
-    ? `${name} · ${money.format(totals.get(name) / 100)} no período. Toque novamente para mostrar todas.`
+    ? `${categoryLabel(name)} · ${money.format(totals.get(name) / 100)} no período. Toque novamente para mostrar todas.`
     : "Toque em uma categoria ou em uma parte da barra para explorar os gastos.");
 }
 
 function drawCategorySpending(rows) {
+  const fullTotal = rows.reduce((sum, row) => sum + row.total_cents, 0);
+  const unknown = rows.reduce((sum, row) => sum + row.categories.filter(item => item.category === "Importado").reduce((subtotal, item) => subtotal + item.amount_cents, 0), 0);
+  rows = rows.map(row => {
+    const categories = visibleCategories(row.categories);
+    return { ...row, original_total_cents: row.total_cents, categories,
+             total_cents: categories.reduce((sum, item) => sum + item.amount_cents, 0) };
+  });
+  document.querySelector("#category-month-coverage").textContent = `${includeUncategorized.checked ? "Todas as compras detalhadas" : "Somente compras categorizadas"} no gráfico. Total detalhado no período: ${money.format(fullTotal / 100)} · ${money.format(unknown / 100)} ainda sem categoria.`;
   const target = document.querySelector("#category-month-chart");
   const legend = document.querySelector("#category-month-legend");
   target.replaceChildren();
   legend.replaceChildren();
   if (!rows.some(row => row.total_cents > 0)) {
-    emptyChart(target, "Sem compras registradas neste período.");
+    emptyChart(target, fullTotal ? "As compras deste período ainda aguardam categorização." : "Sem compras registradas neste período.");
     selectedCategory = null;
-    chartInsight("category-month-insight", "Sem compras registradas neste período.");
+    chartInsight("category-month-insight", fullTotal ? "Há compras detalhadas aguardando categoria; o total continua informado abaixo." : "Sem compras registradas neste período.");
     return;
   }
   const totals = new Map();
@@ -204,7 +212,7 @@ function drawCategorySpending(rows) {
         segment.style.width = `${100 * item.amount_cents / row.total_cents}%`;
         segment.style.backgroundColor = colors.get(item.category);
         const share = Math.round(100 * item.amount_cents / row.total_cents);
-        segment.title = `${item.category} · ${monthLabel(row.month)}/${row.month.slice(2, 4)} · ${money.format(item.amount_cents / 100)} · ${share}% do mês`;
+        segment.title = `${categoryLabel(item.category)} · ${monthLabel(row.month)}/${row.month.slice(2, 4)} · ${money.format(item.amount_cents / 100)} · ${share}% do valor mostrado`;
         segment.setAttribute("aria-label", segment.title);
         segment.addEventListener("mouseenter", () => chartInsight("category-month-insight", segment.title));
         segment.addEventListener("focus", () => chartInsight("category-month-insight", segment.title));
@@ -214,12 +222,13 @@ function drawCategorySpending(rows) {
       }
       track.append(bar);
     } else {
-      track.textContent = "Sem compras registradas";
+      track.textContent = row.original_total_cents ? "Sem compras categorizadas" : "Sem compras registradas";
       track.classList.add("category-month-empty");
     }
     const total = document.createElement("strong");
     total.className = "category-month-total";
     total.textContent = row.total_cents ? money.format(row.total_cents / 100) : "—";
+    total.title = `Valor mostrado: ${money.format(row.total_cents / 100)} · Total detalhado do mês: ${money.format(row.original_total_cents / 100)}`;
     line.append(month, track, total);
     target.append(line);
   }
@@ -229,13 +238,13 @@ function drawCategorySpending(rows) {
     label.className = "category-legend-button";
     label.dataset.category = name;
     label.setAttribute("aria-pressed", String(selectedCategory === name));
-    label.setAttribute("aria-label", `${name}: ${money.format(totals.get(name) / 100)} no período`);
+    label.setAttribute("aria-label", `${categoryLabel(name)}: ${money.format(totals.get(name) / 100)} no período`);
     const swatch = document.createElement("i");
     swatch.style.backgroundColor = colors.get(name);
-    label.append(swatch, document.createTextNode(name));
+    label.append(swatch, document.createTextNode(categoryLabel(name)));
     label.addEventListener("click", () => highlightCategory(selectedCategory === name ? null : name, totals));
-    label.addEventListener("mouseenter", () => chartInsight("category-month-insight", `${name} · ${money.format(totals.get(name) / 100)} no período`));
-    label.addEventListener("focus", () => chartInsight("category-month-insight", `${name} · ${money.format(totals.get(name) / 100)} no período`));
+    label.addEventListener("mouseenter", () => chartInsight("category-month-insight", `${categoryLabel(name)} · ${money.format(totals.get(name) / 100)} no período`));
+    label.addEventListener("focus", () => chartInsight("category-month-insight", `${categoryLabel(name)} · ${money.format(totals.get(name) / 100)} no período`));
     label.addEventListener("mouseleave", () => highlightCategory(selectedCategory, totals));
     legend.append(label);
   }

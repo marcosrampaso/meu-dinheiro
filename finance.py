@@ -32,9 +32,20 @@ GENERIC_MERCHANT_KEYS = {"pix", "compra", "debito", "credito", "pagamento", "tra
                          "cartao", "estabelecimento", "lancamento"}
 
 
+def merchant_description(description: str) -> str:
+    """Remove bank wrappers and the fixed-width city/country suffix, keeping the merchant."""
+    text = re.sub(r"^compra no d[eé]bito\s*[-:]\s*", "", description.strip(), flags=re.IGNORECASE)
+    fields = re.split(r"\s{2,}", text)
+    if len(fields) > 1 and re.search(r"(?:\s|^)BRA$", fields[-1], flags=re.IGNORECASE):
+        merchant_fields = fields[:-2] if fields[-1].casefold() == "bra" else fields[:-1]
+        if merchant_fields:
+            text = " ".join(merchant_fields)
+    return text
+
+
 def merchant_key(description: str) -> str | None:
     """Match the same merchant across accents, casing and changing reference numbers."""
-    plain = unicodedata.normalize("NFKD", description).encode("ascii", "ignore").decode().casefold()
+    plain = unicodedata.normalize("NFKD", merchant_description(description)).encode("ascii", "ignore").decode().casefold()
     plain = re.sub(r"\b(?:19|20)\d{2}\b", " ", plain)
     plain = re.sub(r"\b\d{5,}\b", " ", plain)
     key = " ".join(re.findall(r"[a-z0-9]+", plain))
@@ -354,6 +365,16 @@ class FinanceStore:
                     "WHERE kind = 'expense' AND excluded = 0 ORDER BY id"
                 ):
                     self._remember_category(connection, row["description"], row["scope"], row["category"])
+            # Add aliases from approved historical descriptions without replacing a later correction.
+            aliases = {}
+            for row in connection.execute("SELECT description,scope,category FROM transactions WHERE kind='expense' AND excluded=0"):
+                key = merchant_key(row["description"])
+                if key and row["category"] in PURCHASE_CATEGORIES:
+                    aliases.setdefault((row["scope"], key), set()).add(row["category"])
+            for (scope, key), categories in aliases.items():
+                if len(categories) == 1:
+                    connection.execute("INSERT OR IGNORE INTO category_memory(scope,merchant_key,category) VALUES (?,?,?)",
+                                       (scope, key, categories.pop()))
         os.chmod(self.path, 0o600)
 
     @staticmethod
@@ -388,6 +409,20 @@ class FinanceStore:
             if category:
                 matches[row["id"]] = category
         return matches
+
+    def apply_remembered_categories(self) -> int:
+        """Apply only locally approved merchant rules to unclassified purchases."""
+        with self._connect() as connection:
+            rows = [dict(row) for row in connection.execute(
+                "SELECT id,description,scope FROM transactions WHERE kind='expense' AND excluded=0 AND category='Importado'")]
+        learned = self.remembered_categories(rows)
+        applied = 0
+        with self._connect() as connection:
+            for identifier, category in learned.items():
+                applied += connection.execute(
+                    "UPDATE transactions SET category=? WHERE id=? AND category='Importado' AND excluded=0",
+                    (category, identifier)).rowcount
+        return applied
 
     def _backup_before_migration(self) -> None:
         if not self.path.exists():

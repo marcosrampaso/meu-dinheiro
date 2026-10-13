@@ -280,6 +280,17 @@ class FinanceStoreTests(unittest.TestCase):
         self.assertEqual(reopened.remembered_categories([fresh]), {fresh["id"]: "Educação"})
         self.assertEqual(reopened.get(approved["id"])["category"], "Educação")
 
+    def test_bank_wrappers_and_location_do_not_lose_confirmed_category(self):
+        self.store.add(transaction(description="LOJA EXEMPLO",category="Compras"))
+        padded = self.store.add(transaction(description="LOJA  EXEMPLO     CIDADE TESTE     BRA",category="Importado"))
+        debit = self.store.add(transaction(description="Compra no débito - LOJA EXEMPLO",category="Importado"))
+        other = self.store.add(transaction(description="LOJA DIFERENTE     CIDADE TESTE BRA",category="Importado"))
+        self.assertEqual(self.store.remembered_categories([padded,debit,other]),
+                         {padded["id"]:"Compras",debit["id"]:"Compras"})
+        self.assertEqual(self.store.apply_remembered_categories(),2)
+        self.assertEqual(self.store.get(other["id"])["category"],"Importado")
+        self.assertEqual(self.store.get(padded["id"])["amount_cents"],padded["amount_cents"])
+
 
 if __name__ == "__main__":
     unittest.main()

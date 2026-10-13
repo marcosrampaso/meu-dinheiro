@@ -7,7 +7,7 @@ import re
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from finance import PURCHASE_CATEGORIES
+from finance import PURCHASE_CATEGORIES, merchant_description
 
 
 API_URL = "https://api.openai.com/v1/responses"
@@ -19,6 +19,7 @@ class CategorizationError(RuntimeError):
 
 def _description_for_model(description: str) -> str:
     """Remove common identifiers while retaining the merchant text."""
+    description = merchant_description(description)
     description = re.sub(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", "[email]", description)
     description = re.sub(r"\b[0-9a-f]{8}-[0-9a-f-]{27,}\b", "[identificador]", description, flags=re.IGNORECASE)
     description = re.sub(r"\b\d{3}\.\d{3}\.\d{3}-\d{2}\b", "[documento]", description)

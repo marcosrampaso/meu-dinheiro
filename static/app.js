@@ -3,9 +3,18 @@ const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL
 const monthInput = document.querySelector("#month");
 const scopeInput = document.querySelector("#scope-view");
 const purchasePeriodInput = document.querySelector("#purchase-period");
+const includeUncategorized = document.querySelector("#include-uncategorized");
 const form = document.querySelector("#transaction-form");
 const notice = document.querySelector("#notice");
 let editingId = null;
+
+function categoryLabel(category) {
+  return category === "Importado" ? "Sem categoria" : category;
+}
+
+function visibleCategories(categories) {
+  return includeUncategorized.checked ? categories : categories.filter(entry => entry.category !== "Importado");
+}
 
 function todayLocal() {
   const now = new Date();
@@ -67,21 +76,25 @@ function setSummary(summary) {
 function renderPurchaseCategories(data) {
   const list = document.querySelector("#categories-list");
   list.replaceChildren();
-  document.querySelector("#purchase-total").textContent = money.format(data.purchase_total_cents / 100);
-  if (data.purchase_categories.length === 0) {
+  const entries = visibleCategories(data.purchase_categories);
+  const shownTotal = entries.reduce((sum, item) => sum + item.amount_cents, 0);
+  const unknown = data.purchase_categories.find(entry => entry.category === "Importado")?.amount_cents || 0;
+  document.querySelector("#purchase-total").textContent = money.format(shownTotal / 100);
+  document.querySelector("#category-coverage").textContent = `Gráfico: ${money.format(shownTotal / 100)}${includeUncategorized.checked ? " em todas as compras" : " em compras categorizadas"}. Total de compras detalhadas: ${money.format(data.purchase_total_cents / 100)} · ${money.format(unknown / 100)} ainda sem categoria.`;
+  if (entries.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty";
-    empty.textContent = data.month ? "Nenhuma compra registrada neste mês." : "Nenhuma compra registrada neste histórico.";
+    empty.textContent = data.purchase_categories.length ? "As compras deste período ainda aguardam categorização. Você pode revisar as sugestões abaixo." : "Nenhuma compra registrada neste período.";
     list.append(empty);
     return;
   }
-  for (const entry of data.purchase_categories) {
+  for (const entry of entries) {
     const row = document.createElement("div");
     row.className = "category-row";
     const label = document.createElement("div");
     label.className = "category-label";
     const name = document.createElement("span");
-    name.textContent = entry.category;
+    name.textContent = categoryLabel(entry.category);
     const amount = document.createElement("span");
     amount.textContent = money.format(entry.amount_cents / 100);
     label.append(name, amount);
@@ -89,7 +102,7 @@ function renderPurchaseCategories(data) {
     track.className = "bar-track";
     const fill = document.createElement("div");
     fill.className = "bar-fill";
-    fill.style.width = `${Math.round(100 * entry.amount_cents / data.purchase_total_cents)}%`;
+    fill.style.width = `${Math.round(100 * entry.amount_cents / shownTotal)}%`;
     track.append(fill);
     row.append(label, track);
     list.append(row);
@@ -122,6 +135,7 @@ function renderTransactions(items) {
     const meta = document.createElement("div");
     meta.className = "transaction-meta";
     meta.textContent = `${item.category} · ${formatDate(item.occurred_on)} · ${item.source}${item.scope === "business" ? " · PJ" : ""}${item.invoice_month ? ` · Fatura ${item.invoice_month}` : ""}${item.category === "Pagamento de fatura" ? " · Saída de caixa" : item.excluded ? " · Fora do resumo" : ""}`;
+    if (item.category === "Importado") meta.textContent = meta.textContent.replace(/^Importado/, "Sem categoria");
     if (item.pending) meta.textContent += " · Provisório (fatura aberta)";
     main.append(name, meta);
     const amount = document.createElement("div");
@@ -271,6 +285,11 @@ scopeInput.addEventListener("change", () => { resetForm(); refresh(); document.d
 purchasePeriodInput.addEventListener("change", () => {
   window.localStorage.setItem("purchase-period", purchasePeriodInput.value);
   refresh({ notify: false });
+});
+includeUncategorized.checked = window.localStorage.getItem("include-uncategorized") === "true";
+includeUncategorized.addEventListener("change", () => {
+  window.localStorage.setItem("include-uncategorized", String(includeUncategorized.checked));
+  refresh();
 });
 let lastResumeRefresh = 0;
 function refreshOnResume() {

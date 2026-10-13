@@ -91,8 +91,12 @@ def _bank_classification(row: dict, description: str, kind: str) -> tuple[str, b
     plain = description.casefold()
     operation = row.get("operationType")
     if kind == "expense" and ("pagamento" in plain and
-                              ("fatura" in plain or "cartao" in merchant_key(description))):
+                              ("fatura" in plain or "cartao" in (merchant_key(description) or ""))):
         return "Pagamento de fatura", True
+    if kind == "income" and plain.startswith("cashback"):
+        return "Cashback", True
+    if re.match(r"^(aplica[cç][aã]o|resgate)\s*[-:]?\s*(cdb|lci|lca|rdb|fundo|invest)", plain):
+        return "Movimento de investimento", True
     receiver = row.get("paymentData") or {}
     if isinstance(receiver, dict):
         receiver = receiver.get("receiver") or {}

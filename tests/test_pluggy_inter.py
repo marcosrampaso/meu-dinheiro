@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from finance import FinanceStore
-from pluggy_inter import PluggyInter
+from pluggy_inter import PluggyInter, _bank_classification
 from pluggy_xp import PluggyError, PluggyXP
 
 
@@ -176,6 +176,12 @@ class PluggyInterTests(unittest.TestCase):
             self.inter.preview(broken)
         with self.store._connect() as connection:
             self.assertEqual(connection.execute('SELECT COUNT(*) FROM transactions').fetchone()[0],0)
+
+    def test_investment_application_and_cashback_are_not_consumption(self):
+        self.assertEqual(_bank_classification({"operationType":"OUTROS"},
+            "Aplicação - Cdb Exemplo Banco", "expense"),("Movimento de investimento",True))
+        self.assertEqual(_bank_classification({},"Cashback - Exemplo","income"),("Cashback",True))
+        self.assertEqual(_bank_classification({},"Compra no débito - Cdb Restaurante","expense"),("Importado",False))
 
 
 if __name__ == "__main__":
