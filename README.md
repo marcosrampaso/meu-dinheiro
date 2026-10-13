@@ -26,7 +26,8 @@ O banco padrão fica em `data/financas.db` e é criado na primeira execução. *
 - Visões **Pessoal**, **PJ** e **Tudo**. Transferências identificadas entre contas próprias não duplicam a receita consolidada.
 - Importação de faturas PDF de cartão e extratos CSV/OFX, com prévia e proteção contra importação repetida.
 - Importação de extratos CSV da XP com prévia e conciliação de PIX enviados pelo Inter; o histórico da XP fica separado do fluxo de caixa e dos gráficos de gastos.
-- Aba **Investimentos** com carteira atual, composição por classe, aportes por mês, aportes acumulados e movimentações da XP, atualizada dinamicamente pelos arquivos importados.
+- Aba **Investimentos** com carteira atual, composição por classe, variação bruta por ativo, aportes por mês, aportes acumulados e movimentações da XP, atualizada dinamicamente pelos arquivos importados.
+- Aba **Notícias** com pesquisa sob demanda dos ativos da XP por GPT-6 Luna, fontes clicáveis, cenários de curto, médio e longo prazo e oportunidades para estudar.
 - Histórico de faturas por mês, banco e cartão.
 - Gráficos de entradas e saídas, faturas, saldos e gastos por categoria em barras horizontais mensais, gerados dinamicamente a partir da API. Barras e pontos mostram os valores ao passar o mouse ou usar o teclado; a legenda do gráfico mensal destaca uma categoria em todos os meses. Meses sem extrato não são apresentados como saldo zero.
 - Compras da conta/débito e do cartão de crédito por categoria, com filtros para gerar sugestões opcionais por IA. As sugestões precisam de confirmação antes de serem salvas. Categorias confirmadas são lembradas localmente para compras com a mesma descrição.
@@ -48,6 +49,10 @@ Na aba **Investimentos**, envie o CSV da conta XP e confira a prévia antes de c
 
 Na mesma aba, **Importar posição detalhada** aceita o arquivo XLSX exportado pela XP. O app valida a soma dos ativos, proventos a receber e saldo contra o patrimônio informado, mostra uma prévia e salva uma fotografia por data. Se você importar outro arquivo da mesma data, essa fotografia será atualizada. A composição usa o valor bruto dos ativos; a diferença em relação ao custo informado pela XP é apenas uma comparação dos ativos da fotografia, não a rentabilidade total. Os aportes e o patrimônio são exibidos separadamente. Para acompanhar a evolução real da carteira, importe posições de outras datas.
 
+O gráfico **Rendimento por ativo** usa `valor bruto − custo` da posição selecionada e mostra essa variação em reais e percentual. O total do gráfico soma apenas os ativos da fotografia; proventos a receber, impostos e taxas não entram. Ele não calcula a rentabilidade histórica da carteira nem uma série mensal de rendimento. Para isso, serão necessários dados de posições anteriores e de proventos.
+
+Na aba **Notícias**, clique em **Atualizar pesquisa** para buscar informações atuais dos ativos da posição XP mais recente. A pesquisa não roda automaticamente. Ela usa GPT-6 Luna e busca na web; resultados sem link encontrado na busca são omitidos ou substituídos por uma mensagem neutra. Para fundos com nome extenso, o app também confere se o endereço da fonte corresponde ao produto, evitando trocar fundos da mesma família. Essa verificação não audita todas as afirmações do modelo. O relatório fica no SQLite até ser atualizado; uma nova posição com outra data ou lista de ativos pede uma nova pesquisa. O app envia apenas os nomes de até oito ativos, priorizados por valor. Quando há mais ativos, a tela informa quantos ficaram fora. Revise as fontes, as datas e os riscos antes de tomar decisões. As oportunidades são temas para estudar, não recomendações de compra.
+
 Se a fatura atual ainda não puder ser exportada, use **Adicionar compra à fatura**. Escolha banco, área e o mesmo nome de cartão usado nas faturas anteriores; informe data, valor, descrição, categoria e mês da fatura. A compra aparece no histórico e nos gráficos do cartão, mas não altera o saldo da conta corrente. Se importar o PDF dessa fatura depois, confira e exclua lançamentos repetidos.
 
 ## Categorias com IA
@@ -61,6 +66,8 @@ O quadro **Compras por categoria** permite alternar entre o mês selecionado e t
 As credenciais OAuth ficam somente em `data/chatgpt-auth.json`, com permissão de leitura restrita, e a pasta `data/` é ignorada pelo Git. O aplicativo renova o token quando necessário e usa apenas um modelo autorizado para a conta conectada. Ao desconectar, ele revoga a sessão renovável quando a rede permite e apaga os tokens locais. O arquivo `.env` de versões anteriores continua ignorado pelo Git, mas **não é mais lido pelo programa**.
 
 A integração usa a API Responses com `store: false` e `stream: true`. Envia apenas IDs e descrições tratadas das compras que ainda não têm categoria aprendida; identificadores comuns nas descrições são mascarados. Valores, datas, saldos, categorias confirmadas e arquivos originais não são enviados. A conexão não dá acesso às suas conversas do ChatGPT. A categorização nunca troca automaticamente para cobrança por API key.
+
+A pesquisa de investimentos usa a mesma conexão ChatGPT, mas fixa o modelo `gpt-6-luna` e exige busca na web. Os nomes dos ativos são enviados à OpenAI e as páginas consultadas são processadas pelo modelo; valores, quantidades, números de conta e documentos não são enviados. A pesquisa consome uso do plano e pode estar sujeita a limites próprios da busca web. A disponibilidade da ferramenta depende do acesso da conta conectada. Se a conta não autorizar a busca, o app mostra o erro e mantém o último relatório salvo.
 
 ## API
 
@@ -85,6 +92,8 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | POST | `/investments/imports/preview` | Conferir linhas do CSV da XP e pares com débitos do Inter |
 | POST | `/investments/imports` | Salvar o histórico da XP sem duplicar e marcar os pares confirmados |
 | GET | `/investments/overview?month=AAAA-MM&months=6` | Aportes mensais e acumulados, conciliações e movimentações para a aba Investimentos |
+| GET | `/investments/news` | Ler o último relatório da posição XP atual e o estado da conexão |
+| POST | `/investments/news` | Atualizar manualmente a pesquisa dos ativos com GPT-6 Luna e busca web |
 | POST | `/investments/positions/preview` | Conferir a posição detalhada XLSX da XP (`filename` e `content_base64`) |
 | POST | `/investments/positions` | Salvar ou atualizar a fotografia da carteira na data da planilha |
 | GET | `/categorization/status?scope=personal&month=AAAA-MM&payment_type=account` | Estado da categorização e pendências por conta/cartão e Pessoal/PJ |
@@ -106,6 +115,8 @@ node --check static/app.js
 node --check static/import.js
 node --check static/charts.js
 node --check static/categories.js
+node --check static/investments.js
+node --check static/news.js
 ```
 
 O pacote [`pypdf`](https://pypdf.readthedocs.io/) incluído em `vendor` mantém sua licença em [`vendor/PYPDF-LICENSE.txt`](vendor/PYPDF-LICENSE.txt).

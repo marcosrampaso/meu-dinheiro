@@ -71,6 +71,7 @@ def _read_completed_response(response) -> tuple[dict, str]:
     data_lines = []
     text_deltas: dict[tuple[int, int], list[str]] = {}
     completed_text: dict[tuple[int, int], str] = {}
+    output_items = []
     for raw_line in response:
         line = raw_line.decode("utf-8").rstrip("\r\n")
         if line.startswith("data:"):
@@ -84,6 +85,8 @@ def _read_completed_response(response) -> tuple[dict, str]:
             raise CategorizationError("O ChatGPT devolveu uma resposta inválida.") from exc
         data_lines.clear()
         event_type = event.get("type")
+        if event_type == "response.output_item.done" and isinstance(event.get("item"), dict):
+            output_items.append(event["item"])
         if event_type in ("response.output_text.delta", "response.output_text.done"):
             key = (event.get("output_index", 0), event.get("content_index", 0))
             if event_type == "response.output_text.delta":
@@ -94,7 +97,10 @@ def _read_completed_response(response) -> tuple[dict, str]:
             keys = text_deltas.keys() | completed_text.keys()
             streamed_text = "".join(completed_text.get(key, "".join(text_deltas.get(key, [])))
                                     for key in sorted(keys))
-            return event["response"], streamed_text
+            payload = event["response"]
+            if not payload.get("output") and output_items:
+                payload = {**payload, "output": output_items}
+            return payload, streamed_text
         if event_type == "response.failed":
             error = (event.get("response") or {}).get("error") or {}
             if error.get("code") == "subscription_sharing_usage_limit_exceeded":

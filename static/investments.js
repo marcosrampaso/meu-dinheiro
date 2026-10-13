@@ -3,27 +3,36 @@ const investmentMonths = document.querySelector("#investment-months");
 const investmentStatus = document.querySelector("#investment-status");
 const financesTab = document.querySelector("#finances-tab");
 const investmentsTab = document.querySelector("#investments-tab");
+const newsTab = document.querySelector("#news-tab");
 const financesView = document.querySelector("#finances-view");
 const investmentsView = document.querySelector("#investments-view");
+const newsView = document.querySelector("#news-view");
 let investmentRequestId = 0;
 
 function setArea(area) {
   const showInvestments = area === "investments";
-  financesView.hidden = showInvestments;
+  const showNews = area === "news";
+  financesView.hidden = showInvestments || showNews;
   investmentsView.hidden = !showInvestments;
-  financesTab.setAttribute("aria-selected", String(!showInvestments));
+  newsView.hidden = !showNews;
+  financesTab.setAttribute("aria-selected", String(!showInvestments && !showNews));
   investmentsTab.setAttribute("aria-selected", String(showInvestments));
-  financesTab.tabIndex = showInvestments ? -1 : 0;
+  newsTab.setAttribute("aria-selected", String(showNews));
+  financesTab.tabIndex = showInvestments || showNews ? -1 : 0;
   investmentsTab.tabIndex = showInvestments ? 0 : -1;
+  newsTab.tabIndex = showNews ? 0 : -1;
   if (showInvestments) refreshInvestments();
+  if (showNews) document.dispatchEvent(new Event("news-view-resume"));
 }
 
 function syncAreaFromHash() {
-  setArea(window.location.hash === "#investimentos" ? "investments" : "finances");
+  setArea(window.location.hash === "#investimentos" ? "investments" :
+    window.location.hash === "#noticias" ? "news" : "finances");
 }
 
 financesTab.addEventListener("click", () => { window.location.hash = "financas"; syncAreaFromHash(); });
 investmentsTab.addEventListener("click", () => { window.location.hash = "investimentos"; syncAreaFromHash(); });
+newsTab.addEventListener("click", () => { window.location.hash = "noticias"; syncAreaFromHash(); });
 window.addEventListener("hashchange", syncAreaFromHash);
 
 function drawInvestmentCumulative(rows) {
@@ -104,6 +113,7 @@ function renderInvestmentPosition(position) {
     document.querySelector("#investment-position-date").textContent = "Importe a posição detalhada";
     document.querySelector("#investment-portfolio-count").textContent = "—";
     document.querySelector("#investment-portfolio-note").textContent = "Não há posição importada até este mês.";
+    renderInvestmentReturns(null);
     return;
   }
   document.querySelector("#investment-portfolio-total").textContent = money.format(position.total_cents / 100);
@@ -149,6 +159,47 @@ function renderInvestmentPosition(position) {
     amount.textContent = money.format(asset.value_cents / 100);
     row.append(details, amount);
     assets.append(row);
+  }
+  renderInvestmentReturns(position);
+}
+
+function renderInvestmentReturns(position) {
+  const target = document.querySelector("#investment-return-chart");
+  target.replaceChildren();
+  const total = document.querySelector("#investment-return-total");
+  const note = document.querySelector("#investment-return-note");
+  if (!position || !position.assets.length) {
+    total.textContent = "—";
+    note.textContent = "Importe uma posição detalhada para comparar custo e valor atual.";
+    return;
+  }
+  const cost = position.assets.reduce((sum, asset) => sum + asset.cost_cents, 0);
+  const change = position.assets_cents - cost;
+  total.textContent = `${change < 0 ? "−" : "+"}${money.format(Math.abs(change) / 100)}`;
+  total.classList.toggle("negative", change < 0);
+  note.textContent = `Variação bruta estimada: ${cost ? (change / cost * 100).toFixed(2).replace(".", ",") : "0,00"}% sobre o custo dos ativos em ${formatDate(position.as_of)}. Proventos a receber e impostos não entram neste gráfico. Não representa a rentabilidade histórica total.`;
+  const maxAbs = Math.max(1, ...position.assets.map(asset => Math.abs(asset.value_cents - asset.cost_cents)));
+  for (const asset of position.assets) {
+    const delta = asset.value_cents - asset.cost_cents;
+    const percent = asset.cost_cents ? delta / asset.cost_cents * 100 : 0;
+    const row = document.createElement("div");
+    row.className = "return-row";
+    const name = document.createElement("strong");
+    name.textContent = asset.name;
+    const track = document.createElement("div");
+    track.className = "return-track";
+    const zero = document.createElement("span");
+    zero.className = "return-zero";
+    const bar = document.createElement("span");
+    bar.className = `return-bar ${delta < 0 ? "loss" : "gain"}`;
+    bar.style.width = `${Math.max(delta === 0 ? 0 : 1, Math.abs(delta) / maxAbs * 45)}%`;
+    bar.style.left = delta < 0 ? `${50 - Math.abs(delta) / maxAbs * 45}%` : "50%";
+    track.append(zero, bar);
+    const value = document.createElement("span");
+    value.className = delta < 0 ? "return-loss" : "return-gain";
+    value.textContent = `${delta < 0 ? "−" : "+"}${money.format(Math.abs(delta) / 100)} (${percent < 0 ? "−" : "+"}${Math.abs(percent).toFixed(2).replace(".", ",")}%)`;
+    row.append(name, track, value);
+    target.append(row);
   }
 }
 

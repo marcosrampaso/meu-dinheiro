@@ -12,6 +12,7 @@
   <script src="/xp-positions.js" defer></script>
   <script src="/charts.js" defer></script>
   <script src="/investments.js" defer></script>
+  <script src="/news.js" defer></script>
   <script src="/categories.js" defer></script>
   <script src="/manual-card.js" defer></script>
 </head>
@@ -26,6 +27,7 @@
       <nav class="workspace-tabs" role="tablist" aria-label="Áreas do Meu Dinheiro">
         <button id="finances-tab" type="button" role="tab" aria-controls="finances-view" aria-selected="true">Finanças</button>
         <button id="investments-tab" type="button" role="tab" aria-controls="investments-view" aria-selected="false">Investimentos</button>
+        <button id="news-tab" type="button" role="tab" aria-controls="news-view" aria-selected="false">Notícias</button>
       </nav>
       <div id="finances-view" class="app-view" role="tabpanel" aria-labelledby="finances-tab">
       <section class="hero" aria-labelledby="page-title">
@@ -169,6 +171,11 @@
           <div id="investment-allocation" aria-label="Gráfico de composição da carteira"></div>
           <div id="investment-assets"></div>
         </section>
+        <section class="panel investment-returns" aria-labelledby="investment-returns-title">
+          <div class="panel-header"><div><p class="eyebrow">RENDIMENTO</p><h2 id="investment-returns-title">Rendimento por ativo</h2></div><strong id="investment-return-total">—</strong></div>
+          <p id="investment-return-note" class="panel-intro">Importe uma posição detalhada para comparar custo e valor atual.</p>
+          <div id="investment-return-chart" aria-label="Gráfico de rendimento por ativo"></div>
+        </section>
         <section class="charts-section" aria-labelledby="investment-charts-title">
           <div class="charts-heading"><div><p class="eyebrow">EVOLUÇÃO</p><h2 id="investment-charts-title">Aportes ao longo do tempo</h2><p>Gráficos montados a partir dos CSVs da XP salvos neste computador.</p></div></div>
           <div class="charts-grid">
@@ -187,6 +194,18 @@
           <p class="panel-intro">Envie um CSV da conta XP para atualizar o histórico e confirmar transferências feitas pelo Inter. Você pode repetir períodos sem duplicar lançamentos.</p>
           <form id="xp-import-form"><div class="import-fields"><label>Extrato CSV da XP<input name="file" type="file" accept=".csv,text/csv" required></label></div><div id="xp-import-status" class="import-status" role="status" aria-live="polite"></div><div class="form-actions"><button class="primary-button" type="submit">Ver prévia da XP</button><button id="xp-import-button" class="secondary-button" type="button" disabled>Importar extrato XP</button></div><div id="xp-import-preview" class="import-preview" hidden></div></form>
         </section>
+      </section>
+      <section id="news-view" class="app-view" role="tabpanel" aria-labelledby="news-tab" hidden>
+        <div class="investment-hero">
+          <div><p class="eyebrow">PESQUISA DE MERCADO</p><h1>Notícias dos seus ativos</h1><p>Fatos recentes, perspectivas e ideias para acompanhar.</p></div>
+        </div>
+        <section class="panel news-intro" aria-labelledby="news-intro-title">
+          <div class="panel-header"><div><h2 id="news-intro-title">Pesquisar com GPT-6 Luna</h2><p id="news-position-label">Carregando posição...</p></div></div>
+          <p>Pesquisa sob demanda dos ativos da sua posição XP mais recente. O modelo recebe apenas os nomes dos ativos; valores, quantidades, documentos e conta não são enviados. As análises exibem as fontes consultadas.</p>
+          <div class="form-actions"><button id="news-refresh" class="primary-button" type="button">Atualizar pesquisa</button></div>
+          <div id="news-status" class="import-status" role="status" aria-live="polite"></div>
+        </section>
+        <div id="news-report"></div>
       </section>
     </main>
     <footer>Meu Dinheiro · Seus dados ficam no arquivo local do programa.</footer>

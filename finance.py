@@ -5,6 +5,8 @@ from __future__ import annotations
 import sqlite3
 import re
 import unicodedata
+import hashlib
+import json
 from contextlib import closing, contextmanager
 from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -204,6 +206,15 @@ class FinanceStore:
                     quantity TEXT,
                     net_cents INTEGER,
                     PRIMARY KEY (as_of, category, name)
+                )
+            """)
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS investment_news (
+                    signature TEXT PRIMARY KEY,
+                    as_of TEXT NOT NULL,
+                    generated_at TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    report_json TEXT NOT NULL
                 )
             """)
             memory_exists = connection.execute(
@@ -771,6 +782,46 @@ class FinanceStore:
                 "movement_count": len(movements),
                 "movements": list(reversed(movements[-60:])),
                 "position": position, "position_history": snapshots}
+
+    def investment_news_context(self) -> dict | None:
+        """Return asset names only; amounts and account details never enter research prompts."""
+        with self._connect() as connection:
+            row = connection.execute("SELECT as_of FROM investment_snapshots ORDER BY as_of DESC LIMIT 1").fetchone()
+            if row is None:
+                return None
+            all_names = [item[0] for item in connection.execute("""
+                SELECT name FROM investment_positions WHERE as_of = ?
+                ORDER BY value_cents DESC, name
+            """, (row["as_of"],))]
+            names = all_names[:8]
+        signature = hashlib.sha256((row["as_of"] + "|" + "|".join(names)).encode("utf-8")).hexdigest()
+        return {"as_of": row["as_of"], "assets": names, "more_assets": max(0, len(all_names) - 8),
+                "signature": signature}
+
+    def investment_news(self) -> dict:
+        context = self.investment_news_context()
+        if context is None:
+            return {"position": None, "report": None}
+        with self._connect() as connection:
+            row = connection.execute("""
+                SELECT generated_at, model, report_json FROM investment_news WHERE signature = ?
+            """, (context["signature"],)).fetchone()
+        report = ({"generated_at": row["generated_at"], "model": row["model"],
+                   **json.loads(row["report_json"])} if row else None)
+        return {"position": {"as_of": context["as_of"], "assets": context["assets"],
+                             "more_assets": context["more_assets"]},
+                "report": report}
+
+    def save_investment_news(self, context: dict, report: dict, generated_at: str, model: str) -> dict:
+        with self._connect() as connection:
+            connection.execute("""
+                INSERT INTO investment_news (signature, as_of, generated_at, model, report_json)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(signature) DO UPDATE SET generated_at = excluded.generated_at,
+                    model = excluded.model, report_json = excluded.report_json
+            """, (context["signature"], context["as_of"], generated_at, model,
+                  json.dumps(report, ensure_ascii=False)))
+        return {"generated_at": generated_at, "model": model, **report}
 
     def invoice_history(self, scope: str = "personal") -> list[dict]:
         scope = validate_scope(scope, allow_all=True)

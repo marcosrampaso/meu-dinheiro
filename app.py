@@ -6,7 +6,7 @@ import argparse
 import json
 import threading
 import webbrowser
-from datetime import date
+from datetime import date, datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -19,6 +19,7 @@ from importers import (account_balance_from_csv, account_daily_balances_from_csv
                        account_period_from_csv, inspect_import, prepare_import)
 from xp_import import parse_xp_statement
 from xp_positions import parse_xp_positions
+from investment_news import ResearchError, research_assets
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -30,6 +31,7 @@ STATIC_FILES = {
     "/xp-import.js": (BASE_DIR / "static" / "xp-import.js", "text/javascript; charset=utf-8"),
     "/xp-positions.js": (BASE_DIR / "static" / "xp-positions.js", "text/javascript; charset=utf-8"),
     "/investments.js": (BASE_DIR / "static" / "investments.js", "text/javascript; charset=utf-8"),
+    "/news.js": (BASE_DIR / "static" / "news.js", "text/javascript; charset=utf-8"),
     "/charts.js": (BASE_DIR / "static" / "charts.js", "text/javascript; charset=utf-8"),
     "/categories.js": (BASE_DIR / "static" / "categories.js", "text/javascript; charset=utf-8"),
     "/manual-card.js": (BASE_DIR / "static" / "manual-card.js", "text/javascript; charset=utf-8"),
@@ -78,6 +80,8 @@ class FinanceHandler(BaseHTTPRequestHandler):
         except ChatGPTAuthError as exc:
             self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": str(exc)})
         except CategorizationError as exc:
+            self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
+        except ResearchError as exc:
             self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
         except NotFoundError as exc:
             self._json(HTTPStatus.NOT_FOUND, {"error": str(exc)})
@@ -176,6 +180,10 @@ class FinanceHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.OK, self.server.store.investment_overview(
                 self._month(query), int(raw_months)))
             return
+        if path == API_PREFIX + "/investments/news":
+            self._json(HTTPStatus.OK, {**self.server.store.investment_news(),
+                                       "chatgpt_connected": self.server.auth.status()["connected"]})
+            return
         if path == API_PREFIX + "/transactions":
             self._json(HTTPStatus.OK, {"items": self.server.store.list_month(self._month(query), self._scope(query))})
             return
@@ -253,6 +261,17 @@ class FinanceHandler(BaseHTTPRequestHandler):
             data = self._read_json(3_000_000)
             snapshot = parse_xp_positions(data.get("filename"), data.get("content_base64"))
             self._json(HTTPStatus.CREATED, self.server.store.import_xp_positions(snapshot))
+            return
+        if path == API_PREFIX + "/investments/news":
+            context = self.server.store.investment_news_context()
+            if context is None:
+                raise ValidationError("Importe uma posição detalhada da XP antes da pesquisa.")
+            token, model = self.server.auth.luna_credentials()
+            report = research_assets(context["assets"], token, model)
+            generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            self.server.store.save_investment_news(context, report, generated_at, model)
+            self._json(HTTPStatus.OK, {**self.server.store.investment_news(),
+                                       "chatgpt_connected": True})
             return
         if path == API_PREFIX + "/imports/preview":
             items = prepare_import(self._read_json(8_000_000))

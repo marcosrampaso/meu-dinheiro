@@ -107,6 +107,32 @@ class ApiTests(unittest.TestCase):
         self.assertEqual((status, overview["total_deposited_cents"]), (200, 1234))
         self.assertEqual(self.call_api("/api/v1/investments/overview?months=25")[0], 400)
 
+    def test_investment_news_requires_position_then_caches_manual_research(self):
+        self.assertEqual(self.call_api("/api/v1/investments/news", "POST", {})[0], 400)
+        self.store.import_xp_positions({
+            "as_of": "2026-10-13", "total_cents": 1100, "assets_cents": 1100,
+            "receivables_cents": 0, "cash_cents": 0,
+            "assets": [{"name": "ABCD11", "category": "Ações", "value_cents": 1100,
+                        "cost_cents": 1000, "quantity": "1", "net_cents": None}],
+        })
+        status, initial = self.call_api("/api/v1/investments/news")
+        self.assertEqual(status, 200)
+        self.assertIsNone(initial["report"])
+        self.assertEqual(initial["position"]["assets"], ["ABCD11"])
+        research = {"assets": [{"asset": "ABCD11", "headline": "Resultado",
+                                "source_url": "https://www.b3.com.br/fato",
+                                "summary": "Resumo", "published_on": "2026-10-13",
+                                "short_term": "Cenário", "medium_term": "Cenário",
+                                "long_term": "Cenário", "risk": "Risco"}],
+                    "opportunities": []}
+        with patch.object(self.server.auth, "luna_credentials", return_value=("fake-token", "gpt-6-luna")), \
+                patch("app.research_assets", return_value=research) as researcher:
+            status, refreshed = self.call_api("/api/v1/investments/news", "POST", {})
+        self.assertEqual(status, 200)
+        researcher.assert_called_once_with(["ABCD11"], "fake-token", "gpt-6-luna")
+        self.assertEqual(refreshed["report"]["assets"][0]["headline"], "Resultado")
+        self.assertEqual(self.call_api("/api/v1/investments/news")[1]["report"]["model"], "gpt-6-luna")
+
     def test_manual_card_purchase_appears_in_invoice_without_cash_expense(self):
         data = {"bank": "inter", "account": "principal", "invoice_month": "2026-10",
                 "occurred_on": "2026-10-09", "description": "Mercado", "amount": "23,50",

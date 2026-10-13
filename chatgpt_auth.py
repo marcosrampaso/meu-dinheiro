@@ -259,6 +259,27 @@ class ChatGPTAuth:
             self._save()
             return token, model
 
+    def luna_credentials(self) -> tuple[str, str]:
+        """Use Luna explicitly for market research, with no silent model fallback."""
+        with self.lock:
+            token, account = self._access_token()
+            if account.get("model") == "gpt-6-luna":
+                return token, "gpt-6-luna"
+            request = Request(MODELS_URL, headers={"Authorization": f"Bearer {token}"})
+            try:
+                with urlopen(request, timeout=20) as response:
+                    catalog = json.load(response)
+                available = {item["slug"] for item in catalog.get("models", [])
+                             if isinstance(item, dict) and item.get("visibility") == "list"
+                             and isinstance(item.get("slug"), str)}
+            except (HTTPError, URLError, TimeoutError, OSError, ValueError, TypeError, KeyError) as exc:
+                raise ChatGPTAuthError("Não foi possível consultar os modelos do seu plano ChatGPT.") from exc
+            if "gpt-6-luna" not in available:
+                raise ChatGPTAuthError("GPT-6 Luna não está disponível nesta conta ChatGPT.")
+            account["model"] = "gpt-6-luna"
+            self._save()
+            return token, "gpt-6-luna"
+
     @staticmethod
     def _revoke(refresh_token: str, client_id: str) -> None:
         with urlopen(DISCOVERY_URL, timeout=20) as response:
