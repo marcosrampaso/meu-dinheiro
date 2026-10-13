@@ -13,6 +13,7 @@ from cdi import CDIBenchmark
 from chatgpt_auth import ChatGPTAuth
 from finance import FinanceStore
 from pluggy_xp import PluggyXP
+from pluggy_inter import PluggyInter
 
 
 XP_CSV = ("Data;Hora;Descricao;Valor;Saldo\n"
@@ -44,6 +45,7 @@ class ApiTests(unittest.TestCase):
         self.server.auth = ChatGPTAuth(Path(self.directory.name) / "chatgpt-auth.json")
         self.server.cdi = CDIBenchmark(self.store)
         self.server.pluggy = PluggyXP(self.store, Path(self.directory.name) / "pluggy-xp.json")
+        self.server.pluggy_inter = PluggyInter(self.store, self.server.pluggy)
 
     def tearDown(self):
         self.directory.cleanup()
@@ -103,14 +105,15 @@ class ApiTests(unittest.TestCase):
     def test_pluggy_connection_endpoints_do_not_return_secret(self):
         config = {"client_id": "client", "client_secret": "secret",
                   "item_id": "12345678-1234-1234-1234-123456789abc"}
-        self.assertEqual(self.call_api("/api/v1/investments/pluggy/status")[1], {"configured": False})
+        self.assertEqual(self.call_api("/api/v1/investments/pluggy/status")[1],
+                         {"configured": False, "inter_configured": False, "credentials_saved": False})
         status, result = self.call_api("/api/v1/investments/pluggy/config", "POST", config)
-        self.assertEqual((status, result), (200, {"configured": True}))
+        self.assertEqual((status, result), (200, {"configured": True, "inter_configured": False}))
         self.assertNotIn("secret", json.dumps(self.call_api("/api/v1/investments/pluggy/status")[1]))
         with patch.object(self.server.pluggy, "preview", return_value={"assets": [], "gross_cents": 0}):
             self.assertEqual(self.call_api("/api/v1/investments/pluggy/preview", "POST", {})[0], 200)
         self.assertEqual(self.call_api("/api/v1/investments/pluggy/config", "DELETE")[1],
-                         {"configured": False})
+                         {"configured": False, "inter_configured": False})
 
     def test_bad_input_and_cross_origin_write_are_rejected(self):
         status, _ = self.call_api("/api/v1/summary?month=wrong")
@@ -274,6 +277,11 @@ class ApiTests(unittest.TestCase):
         self.assertEqual((status, preview["count"]), (200, 2))
         status, committed = self.call_api("/api/v1/imports", "POST", payload)
         self.assertEqual((status, committed["imported"]), (201, 2))
+        with self.store._connect() as connection:
+            self.assertEqual(connection.execute(
+                "SELECT invoice_month FROM invoice_coverage WHERE source = ?",
+                ("Banco do Brasil · principal",)
+            ).fetchone()[0], "2026-10")
         status, history = self.call_api("/api/v1/invoices")
         self.assertEqual(status, 200)
         self.assertEqual(history["items"][0]["expense_cents"], 17345)
@@ -281,6 +289,22 @@ class ApiTests(unittest.TestCase):
             "/api/v1/invoices/2026-10?source=Banco%20do%20Brasil%20%C2%B7%20principal"
         )
         self.assertEqual((status, len(details["items"])), (200, 2))
+
+    def test_pdf_rejects_month_already_imported_from_connector(self):
+        self.store.add_imported([{
+            "kind": "expense", "description": "Compra conectada", "category": "Importado",
+            "amount_cents": 1000, "occurred_on": "2026-10-05", "excluded": False,
+            "source": "Banco do Brasil · principal", "invoice_month": "2026-10",
+            "import_key": "a" * 64, "scope": "personal",
+        }])
+        pdf_path = Path(__file__).parent / "fixtures" / "sample_statement.pdf"
+        payload = {"filename": "bb-2026-10.pdf",
+                   "content_base64": base64.b64encode(pdf_path.read_bytes()).decode("ascii"),
+                   "bank": "bb", "mode": "card", "account": "principal",
+                   "statement_month": "2026-10"}
+        status, response = self.call_api("/api/v1/imports/preview", "POST", payload)
+        self.assertEqual(status, 400)
+        self.assertIn("duplicar gastos", response["error"])
 
     def test_scope_query_filters_personal_and_business(self):
         base = {"kind": "expense", "description": "Teste", "amount": "10,00",

@@ -30,6 +30,7 @@ from performance import performance_overview, classify_flow
 from manual_investments import (manual_overview, save_manual_flow, delete_manual_flow,
                                 save_manual_snapshot, delete_manual_snapshot)
 from pluggy_xp import PluggyXP, PluggyError
+from pluggy_inter import PluggyInter
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -61,6 +62,7 @@ class FinanceHTTPServer(ThreadingHTTPServer):
         self.auth = ChatGPTAuth(BASE_DIR / "data" / "chatgpt-auth.json")
         self.market = MarketQuotes(store, store.path.parent / "brapi-token")
         self.pluggy = PluggyXP(store, store.path.parent / "pluggy-xp.json")
+        self.pluggy_inter = PluggyInter(store, self.pluggy)
         self.market.start()
         self.cdi = CDIBenchmark(store)
         self.cdi.start()
@@ -148,6 +150,17 @@ class FinanceHandler(BaseHTTPRequestHandler):
             raise ValidationError("Envie um objeto JSON.")
         return data
 
+    def _check_card_import_overlap(self, data: dict, items: list[dict]) -> None:
+        if items and data.get("mode") == "card" and data.get("filename", "").lower().endswith(".pdf"):
+            first = items[0]
+            if self.server.store.has_uncovered_invoice_imports(
+                first["source"], first["scope"], first["invoice_month"]
+            ):
+                raise ValidationError(
+                    "Essa fatura já tem lançamentos trazidos por outra integração. "
+                    "Importar o PDF agora pode duplicar gastos; confira o histórico antes."
+                )
+
     def _same_origin(self) -> bool:
         origin = self.headers.get("Origin")
         if not origin:
@@ -230,7 +243,9 @@ class FinanceHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.OK, manual_overview(self.server.store))
             return
         if path == API_PREFIX + "/investments/pluggy/status":
-            self._json(HTTPStatus.OK, {"configured": self.server.pluggy.configured()})
+            self._json(HTTPStatus.OK, {"configured": self.server.pluggy.configured(),
+                                       "inter_configured": self.server.pluggy.inter_configured(),
+                                       "credentials_saved": self.server.pluggy.config_path.is_file()})
             return
         if path == API_PREFIX + "/weekly-summary":
             context = weekly_context(self.server.store, self._scope(query))
@@ -331,10 +346,19 @@ class FinanceHandler(BaseHTTPRequestHandler):
             return
         if path == API_PREFIX + "/investments/pluggy/config":
             self.server.pluggy.save_config(self._read_json())
-            self._json(HTTPStatus.OK, {"configured": True})
+            self.server.pluggy_inter.clear_preview()
+            self._json(HTTPStatus.OK, {"configured": self.server.pluggy.configured(),
+                                       "inter_configured": self.server.pluggy.inter_configured()})
             return
         if path == API_PREFIX + "/investments/pluggy/preview":
             self._json(HTTPStatus.OK, self.server.pluggy.preview())
+            return
+        if path == API_PREFIX + "/accounts/pluggy/inter/preview":
+            self._json(HTTPStatus.OK, self.server.pluggy_inter.preview())
+            return
+        if path == API_PREFIX + "/accounts/pluggy/inter/import":
+            self._json(HTTPStatus.CREATED, self.server.pluggy_inter.import_preview(
+                self._read_json().get("preview_token")))
             return
         if path == API_PREFIX + "/investments/brapi-token":
             self.server.market.save_token(self._read_json().get("token"))
@@ -374,12 +398,15 @@ class FinanceHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.CREATED, save_card_due_rule(self.server.store, self._read_json()))
             return
         if path == API_PREFIX + "/imports/preview":
-            items = prepare_import(self._read_json(8_000_000))
+            data = self._read_json(8_000_000)
+            items = prepare_import(data)
+            self._check_card_import_overlap(data, items)
             self._json(HTTPStatus.OK, {"count": len(items), "sample": items[:5]})
             return
         if path == API_PREFIX + "/imports":
             data = self._read_json(8_000_000)
             items = prepare_import(data)
+            self._check_card_import_overlap(data, items)
             is_account_csv = data.get("mode") == "account" and data.get("filename", "").lower().endswith(".csv")
             balance = account_balance_from_csv(data.get("content")) if is_account_csv else None
             period = account_period_from_csv(data.get("content")) if is_account_csv else None
@@ -389,6 +416,9 @@ class FinanceHandler(BaseHTTPRequestHandler):
                 self.server.store.save_account_statement(items[0]["source"], items[0]["scope"],
                                                          period, daily_balances, balance)
                 result["matched_transfers"] = self.server.store.reconcile_internal_transfers()
+            elif data.get("mode") == "card" and data.get("filename", "").lower().endswith(".pdf"):
+                self.server.store.save_invoice_coverage(items[0]["source"], items[0]["scope"],
+                                                        items[0]["invoice_month"])
             self._json(HTTPStatus.CREATED, result)
             return
         if path == API_PREFIX + "/categorization/suggest":
@@ -466,7 +496,8 @@ class FinanceHandler(BaseHTTPRequestHandler):
             return
         if path == API_PREFIX + "/investments/pluggy/config":
             self.server.pluggy.delete_config()
-            self._json(HTTPStatus.OK, {"configured": False})
+            self.server.pluggy_inter.clear_preview()
+            self._json(HTTPStatus.OK, {"configured": False, "inter_configured": False})
             return
         if path.startswith(API_PREFIX + "/investments/manual/flows/"):
             raw_id = path.removeprefix(API_PREFIX + "/investments/manual/flows/")

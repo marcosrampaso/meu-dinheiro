@@ -177,6 +177,23 @@ class FinanceStore:
                     PRIMARY KEY (source, scope, starts_on, ends_on)
                 )
             """)
+            invoice_coverage_exists = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'invoice_coverage'"
+            ).fetchone() is not None
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS invoice_coverage (
+                    source TEXT NOT NULL,
+                    scope TEXT NOT NULL CHECK (scope IN ('personal', 'business')),
+                    invoice_month TEXT NOT NULL,
+                    PRIMARY KEY (source, scope, invoice_month)
+                )
+            """)
+            if not invoice_coverage_exists:
+                connection.execute("""
+                    INSERT OR IGNORE INTO invoice_coverage (source, scope, invoice_month)
+                    SELECT DISTINCT source, scope, invoice_month FROM transactions
+                    WHERE invoice_month IS NOT NULL AND import_key IS NOT NULL
+                """)
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS investment_entries (
                     import_key TEXT PRIMARY KEY,
@@ -525,6 +542,31 @@ class FinanceStore:
                 "ON CONFLICT(source, scope, as_of) DO UPDATE SET amount_cents = excluded.amount_cents",
                 (source, scope, as_of, amount_cents),
             )
+
+    def save_invoice_coverage(self, source: str, scope: str, invoice_month: str) -> None:
+        scope = validate_scope(scope)
+        invoice_month = validate_month(invoice_month)
+        if not isinstance(source, str) or not 1 <= len(source) <= 80:
+            raise ValidationError("Origem da fatura inválida.")
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO invoice_coverage (source, scope, invoice_month) VALUES (?, ?, ?)",
+                (source, scope, invoice_month),
+            )
+
+    def has_uncovered_invoice_imports(self, source: str, scope: str, invoice_month: str) -> bool:
+        with self._connect() as connection:
+            return connection.execute("""
+                SELECT 1 FROM transactions AS t
+                WHERE t.source = ? AND t.scope = ? AND t.invoice_month = ?
+                  AND t.import_key IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM invoice_coverage AS c
+                      WHERE c.source = t.source AND c.scope = t.scope
+                        AND c.invoice_month = t.invoice_month
+                  )
+                LIMIT 1
+            """, (source, scope, invoice_month)).fetchone() is not None
 
     def save_account_statement(self, source: str, scope: str, period: dict | None,
                                daily_balances: list[dict], latest_balance: dict | None = None) -> None:

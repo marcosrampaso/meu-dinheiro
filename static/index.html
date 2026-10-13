@@ -303,18 +303,25 @@
             <div id="brapi-token-status" class="import-status" role="status" aria-live="polite"></div>
           </section>
           <section class="panel settings-wide" aria-labelledby="pluggy-xp-title">
-            <div class="panel-header"><div><p class="eyebrow">CONEXÃO XP</p><h2 id="pluggy-xp-title">Meu Pluggy</h2></div></div>
-            <p class="panel-intro">Para uso pessoal, conecte a XP pelo Open Finance no <a href="https://meu.pluggy.ai/api-guide" target="_blank" rel="noopener noreferrer">Meu Pluggy</a>. No Dashboard, escolha o conector MeuPluggy e copie o itemId da XP, Client ID e Client Secret. A autorização da conta acontece no serviço da Pluggy.</p>
-            <form id="pluggy-xp-form" class="planning-form"><label>Client ID<input name="client_id" autocomplete="off" required></label><label>Client Secret<input name="client_secret" type="password" autocomplete="off" required></label><label>itemId da XP<input name="item_id" autocomplete="off" required></label><div class="manual-form-actions"><button class="secondary-button" type="submit">Salvar conexão local</button><button id="pluggy-xp-remove" class="text-button" type="button" hidden>Remover conexão</button></div></form>
+            <div class="panel-header"><div><p class="eyebrow">CONTAS E INVESTIMENTOS</p><h2 id="pluggy-xp-title">Meu Pluggy</h2></div></div>
+            <p class="panel-intro">Conecte XP e Inter pessoal no <a href="https://meu.pluggy.ai/api-guide" target="_blank" rel="noopener noreferrer">Meu Pluggy</a>. No Dashboard, escolha o conector MeuPluggy e copie os itemIds de cada instituição. Use o Client ID e Client Secret da mesma aplicação; nosso app gera a chave de sessão automaticamente. Nunca cole sua senha bancária aqui.</p>
+            <form id="pluggy-xp-form" class="planning-form"><label>Client ID<input name="client_id" autocomplete="off" required></label><label>Client Secret<input name="client_secret" type="password" autocomplete="off" required></label><label>itemId da XP<input name="item_id" autocomplete="off" placeholder="Opcional se for conectar só o Inter"></label><label>itemId do Inter pessoal<input name="inter_item_id" autocomplete="off" placeholder="Opcional se for conectar só a XP"></label><div class="manual-form-actions"><button class="secondary-button" type="submit">Salvar conexão local</button><button id="pluggy-xp-remove" class="text-button" type="button" hidden>Remover acesso local</button></div></form>
+            <p class="chart-note">A Pluggy recebe e trata os dados autorizados no consentimento. Este app consulta dados pela API e salva a cópia importada neste computador. Para adicionar o segundo itemId depois, deixe os outros campos vazios; os valores já salvos serão mantidos. Remover acesso local apaga os identificadores deste app, mas não revoga os consentimentos no Meu Pluggy ou no banco.</p>
             <div class="form-actions"><button id="pluggy-xp-preview-button" class="primary-button" type="button" disabled>Conferir ativos recebidos</button><span id="pluggy-xp-state"></span></div>
             <div id="pluggy-xp-status" class="import-status" role="status" aria-live="polite"></div>
             <div id="pluggy-xp-preview" class="import-preview" hidden></div>
             <p class="chart-note">A prévia consulta seus investimentos pela Pluggy e mostra apenas nome e valores necessários para a conferência. Nada é incluído nos gráficos antes de compararmos a cobertura com a carteira atual. As credenciais ficam em arquivo local ignorado pelo Git e não são devolvidas pela API.</p>
+            <div class="settings-divider"></div>
+            <h3>Inter pessoal: conta e cartão</h3>
+            <p class="panel-intro">Confira o que chegou antes de importar. O app ignora períodos já cobertos pelos extratos do Inter e não substitui categorias que você confirmou. Lançamentos pendentes ou sem mês de fatura confirmado ficam fora.</p>
+            <div class="form-actions"><button id="pluggy-inter-preview-button" class="secondary-button" type="button" disabled>Conferir lançamentos do Inter</button><button id="pluggy-inter-import-button" class="primary-button" type="button" disabled>Importar lançamentos conferidos</button></div>
+            <div id="pluggy-inter-status" class="import-status" role="status" aria-live="polite"></div>
+            <div id="pluggy-inter-preview" class="import-preview" hidden></div>
           </section>
         </div>
       </section>
     </main>
-    <footer>Meu Dinheiro · Seus dados ficam no arquivo local do programa.</footer>
+    <footer>Meu Dinheiro · Os dados importados ficam no arquivo local; conexões autorizadas também envolvem os provedores escolhidos.</footer>
   </div>
 </body>
 </html>

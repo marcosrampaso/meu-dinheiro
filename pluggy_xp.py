@@ -100,14 +100,43 @@ class PluggyXP:
         self.config_path = config_path
 
     def configured(self) -> bool:
-        return self.config_path.is_file()
+        try:
+            return bool(self.load_config().get("item_id"))
+        except PluggyError:
+            return False
+
+    def inter_configured(self) -> bool:
+        try:
+            return bool(self.load_config().get("inter_item_id"))
+        except PluggyError:
+            return False
+
+    def load_config(self) -> dict:
+        try:
+            config = json.loads(self.config_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise PluggyError("Configure o Meu Pluggy antes de consultar os dados.") from exc
+        if not isinstance(config, dict) or not config.get("client_id") or not config.get("client_secret"):
+            raise PluggyError("As credenciais da Pluggy estão incompletas.")
+        return config
 
     def save_config(self, data: dict) -> None:
-        values = {key: data.get(key) for key in ("client_id", "client_secret", "item_id")}
-        if any(not isinstance(value, str) or not value.strip() or len(value) > 300
-               for value in values.values()) or not UUID.fullmatch(values["item_id"].strip()):
-            raise ValidationError("Informe Client ID, Client Secret e itemId da XP válidos.")
-        values = {key: value.strip() for key, value in values.items()}
+        if not isinstance(data, dict):
+            raise ValidationError("Configuração da Pluggy inválida.")
+        try:
+            previous = self.load_config()
+        except PluggyError:
+            previous = {}
+        values = {key: data.get(key, "") for key in ("client_id", "client_secret", "item_id", "inter_item_id")}
+        if any(not isinstance(value, str) or len(value) > 300 for value in values.values()):
+            raise ValidationError("Informe credenciais e itemIds válidos.")
+        values = {key: value.strip() or previous.get(key, "") for key, value in values.items()}
+        if not values["client_id"] or not values["client_secret"] or not (values["item_id"] or values["inter_item_id"]):
+            raise ValidationError("Informe Client ID, Client Secret e ao menos um itemId.")
+        if any(value and not UUID.fullmatch(value) for value in (values["item_id"], values["inter_item_id"])):
+            raise ValidationError("Os itemIds devem ser UUIDs válidos.")
+        if values["item_id"] and values["item_id"] == values["inter_item_id"]:
+            raise ValidationError("XP e Inter precisam ter itemIds diferentes.")
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         fd, temporary = tempfile.mkstemp(prefix=".pluggy-xp-", dir=self.config_path.parent)
         try:
@@ -123,10 +152,9 @@ class PluggyXP:
         self.config_path.unlink(missing_ok=True)
 
     def preview(self, http_json=_http_json) -> dict:
-        try:
-            config = json.loads(self.config_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            raise PluggyError("Configure o Meu Pluggy antes de consultar a XP.") from exc
+        config = self.load_config()
+        if not config.get("item_id"):
+            raise PluggyError("Informe o itemId da XP nas Configurações.")
         assets = _fetch_assets(config, http_json)
         with self.store._connect() as connection:
             current = [dict(row) for row in connection.execute("""SELECT name, category, value_cents
