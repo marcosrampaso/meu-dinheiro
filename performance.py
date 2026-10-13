@@ -72,7 +72,7 @@ def performance_overview(store: FinanceStore) -> dict:
         if len(snapshots) < 2:
             return {"status": "needs_snapshots", "snapshot_count": len(snapshots),
                     "points": [], "flows": [], "intervals": [],
-                    "message": "Importe uma segunda posição XP em outra data para comparar com o CDI."}
+                    "message": "Registre outro saldo total da XP em uma data diferente ou importe outra posição."}
         first, last = snapshots[0]["as_of"], snapshots[-1]["as_of"]
         entries = [dict(row) for row in connection.execute("""
             SELECT e.import_key, e.occurred_at, e.description, e.amount_cents,
