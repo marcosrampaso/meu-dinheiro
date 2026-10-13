@@ -7,7 +7,7 @@ const localAuth = (() => {
   let resolveGate;
   let gate = new Promise(resolve => { resolveGate = resolve; });
   let timer = null;
-  let reopenOnVisible = false;
+  let expiresAt = 0;
 
   function lock() {
     if (token) {
@@ -15,6 +15,7 @@ const localAuth = (() => {
       gate = new Promise(resolve => { resolveGate = resolve; });
     }
     window.clearTimeout(timer);
+    expiresAt = 0;
     document.body.classList.add("locked");
     overlay.hidden = false;
     status.textContent = "";
@@ -42,7 +43,11 @@ const localAuth = (() => {
       document.body.classList.remove("locked");
       overlay.hidden = true;
       resolveGate(token);
-      timer = window.setTimeout(() => window.location.reload(), result.session_seconds * 1000);
+      expiresAt = Date.now() + result.session_seconds * 1000;
+      timer = window.setTimeout(() => {
+        lock();
+        window.location.reload();
+      }, result.session_seconds * 1000);
     } catch (error) {
       status.textContent = error.message;
       status.classList.add("error");
@@ -67,15 +72,8 @@ const localAuth = (() => {
   button.addEventListener("click", unlock);
   lockButton.addEventListener("click", lockAndReload);
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden && token) {
-      const oldToken = token;
+    if (!document.hidden && token && Date.now() >= expiresAt) {
       lock();
-      reopenOnVisible = true;
-      void fetch("/api/v1/local-auth/lock", {
-        method: "POST", headers: { "Content-Type": "application/json", "X-Local-Session": oldToken },
-        body: "{}", cache: "no-store", keepalive: true,
-      }).catch(() => {});
-    } else if (!document.hidden && reopenOnVisible) {
       window.location.reload();
     }
   });

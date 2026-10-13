@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 
-SESSION_SECONDS = 10 * 60
+SESSION_SECONDS = 5 * 60
 
 
 class LocalAuthError(Exception):

@@ -92,7 +92,8 @@ class ApiTests(unittest.TestCase):
             "kind": "expense", "description": "Teste", "amount": "1,00",
             "occurred_on": "2026-10-13", "category": "Outros",
         }, authenticated=False)[0], 401)
-        self.assertEqual(self.call_api("/api/v1/local-auth/status", authenticated=False)[0], 200)
+        status, auth_status = self.call_api("/api/v1/local-auth/status", authenticated=False)
+        self.assertEqual((status, auth_status["session_seconds"]), (200, 300))
         self.assertEqual(self.call_api("/api/v1/local-auth/unlock", "POST", {},
                                        headers={"Origin": "https://other.example"},
                                        authenticated=False)[0], 403)
