@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import os
 import re
 import unicodedata
 import hashlib
@@ -245,6 +246,7 @@ class FinanceStore:
                     "WHERE kind = 'expense' AND excluded = 0 ORDER BY id"
                 ):
                     self._remember_category(connection, row["description"], row["scope"], row["category"])
+        os.chmod(self.path, 0o600)
 
     @staticmethod
     def _remember_category(connection: sqlite3.Connection, description: str,
@@ -296,9 +298,11 @@ class FinanceStore:
                 suffix = ".before-scope.bak" if previous_columns <= columns else ".before-import.bak"
             backup_path = self.path.with_name(self.path.name + suffix)
             if backup_path.exists():
+                os.chmod(backup_path, 0o600)
                 return
             with closing(sqlite3.connect(backup_path)) as backup:
                 source.backup(backup)
+            os.chmod(backup_path, 0o600)
 
     @contextmanager
     def _connect(self):

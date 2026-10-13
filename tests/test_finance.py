@@ -1,4 +1,5 @@
 import tempfile
+import stat
 import unittest
 from pathlib import Path
 
@@ -24,6 +25,9 @@ class FinanceStoreTests(unittest.TestCase):
 
     def tearDown(self):
         self.directory.cleanup()
+
+    def test_database_file_is_private(self):
+        self.assertEqual(stat.S_IMODE(self.store.path.stat().st_mode), 0o600)
 
     def test_amount_accepts_brazilian_format_and_rejects_invalid_values(self):
         self.assertEqual(parse_amount("R$ 1.234,56"), 123456)
