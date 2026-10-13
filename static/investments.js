@@ -94,6 +94,64 @@ function renderInvestmentMovements(data) {
   }
 }
 
+function renderInvestmentPosition(position) {
+  const allocation = document.querySelector("#investment-allocation");
+  const assets = document.querySelector("#investment-assets");
+  allocation.replaceChildren();
+  assets.replaceChildren();
+  if (!position) {
+    document.querySelector("#investment-portfolio-total").textContent = "—";
+    document.querySelector("#investment-position-date").textContent = "Importe a posição detalhada";
+    document.querySelector("#investment-portfolio-count").textContent = "—";
+    document.querySelector("#investment-portfolio-note").textContent = "Não há posição importada até este mês.";
+    return;
+  }
+  document.querySelector("#investment-portfolio-total").textContent = money.format(position.total_cents / 100);
+  document.querySelector("#investment-position-date").textContent = `Posição de ${formatDate(position.as_of)}`;
+  document.querySelector("#investment-portfolio-count").textContent = `${position.assets.length} ativos`;
+  const cost = position.assets.reduce((sum, asset) => sum + asset.cost_cents, 0);
+  const difference = position.assets_cents - cost;
+  document.querySelector("#investment-portfolio-note").textContent =
+    `Ativos: ${money.format(position.assets_cents / 100)} · Proventos a receber: ${money.format(position.receivables_cents / 100)} · Diferença entre valor bruto e custo dos ativos: ${difference < 0 ? "−" : "+"}${money.format(Math.abs(difference) / 100)}. Não equivale ao rendimento total da carteira.`;
+  const colors = { "Ações": "#8658ed", "Fundos de Investimentos": "#00a87b", "Fundos Imobiliários": "#ef8a37" };
+  const byCategory = new Map();
+  for (const asset of position.assets) byCategory.set(asset.category, (byCategory.get(asset.category) || 0) + asset.value_cents);
+  for (const [category, value] of byCategory) {
+    const row = document.createElement("div");
+    row.className = "allocation-row";
+    const label = document.createElement("div");
+    label.className = "category-label";
+    const name = document.createElement("span");
+    name.textContent = category;
+    const amount = document.createElement("span");
+    amount.textContent = `${money.format(value / 100)} · ${(value / position.assets_cents * 100).toFixed(1).replace(".", ",")}%`;
+    label.append(name, amount);
+    const track = document.createElement("div");
+    track.className = "bar-track";
+    const fill = document.createElement("div");
+    fill.className = "bar-fill";
+    fill.style.width = `${value / position.assets_cents * 100}%`;
+    fill.style.background = colors[category] || "#268cb3";
+    track.append(fill);
+    row.append(label, track);
+    allocation.append(row);
+  }
+  for (const asset of position.assets) {
+    const row = document.createElement("div");
+    row.className = "investment-row";
+    const details = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = asset.name;
+    const meta = document.createElement("small");
+    meta.textContent = `${asset.category}${asset.quantity ? ` · ${asset.quantity} cotas` : ""} · Custo ${money.format(asset.cost_cents / 100)}`;
+    details.append(name, meta);
+    const amount = document.createElement("b");
+    amount.textContent = money.format(asset.value_cents / 100);
+    row.append(details, amount);
+    assets.append(row);
+  }
+}
+
 async function refreshInvestments() {
   if (investmentsView.hidden) return;
   const requestId = ++investmentRequestId;
@@ -106,6 +164,7 @@ async function refreshInvestments() {
     document.querySelector("#investment-period-total").textContent = money.format(data.period_deposited_cents / 100);
     document.querySelector("#investment-matched").textContent = `${data.matched_count} PIX`;
     document.querySelector("#investment-matched-amount").textContent = `${money.format(data.matched_cents / 100)} no período`;
+    renderInvestmentPosition(data.position);
     drawBars(document.querySelector("#investment-deposits-chart"), data.months,
       "Aportes por mês na XP", [{ key: "deposits_cents", label: "Aportes", color: "#00a87b" }],
       "investment-deposits-insight");

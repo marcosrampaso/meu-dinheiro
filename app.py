@@ -18,6 +18,7 @@ from categorizer import CategorizationError, suggest_categories
 from importers import (account_balance_from_csv, account_daily_balances_from_csv,
                        account_period_from_csv, inspect_import, prepare_import)
 from xp_import import parse_xp_statement
+from xp_positions import parse_xp_positions
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -27,6 +28,7 @@ STATIC_FILES = {
     "/app.js": (BASE_DIR / "static" / "app.js", "text/javascript; charset=utf-8"),
     "/import.js": (BASE_DIR / "static" / "import.js", "text/javascript; charset=utf-8"),
     "/xp-import.js": (BASE_DIR / "static" / "xp-import.js", "text/javascript; charset=utf-8"),
+    "/xp-positions.js": (BASE_DIR / "static" / "xp-positions.js", "text/javascript; charset=utf-8"),
     "/investments.js": (BASE_DIR / "static" / "investments.js", "text/javascript; charset=utf-8"),
     "/charts.js": (BASE_DIR / "static" / "charts.js", "text/javascript; charset=utf-8"),
     "/categories.js": (BASE_DIR / "static" / "categories.js", "text/javascript; charset=utf-8"),
@@ -241,6 +243,16 @@ class FinanceHandler(BaseHTTPRequestHandler):
             data = self._read_json(3_000_000)
             entries = parse_xp_statement(data.get("filename"), data.get("content"))
             self._json(HTTPStatus.CREATED, self.server.store.import_xp_statement(entries))
+            return
+        if path == API_PREFIX + "/investments/positions/preview":
+            data = self._read_json(3_000_000)
+            snapshot = parse_xp_positions(data.get("filename"), data.get("content_base64"))
+            self._json(HTTPStatus.OK, self.server.store.preview_xp_positions(snapshot))
+            return
+        if path == API_PREFIX + "/investments/positions":
+            data = self._read_json(3_000_000)
+            snapshot = parse_xp_positions(data.get("filename"), data.get("content_base64"))
+            self._json(HTTPStatus.CREATED, self.server.store.import_xp_positions(snapshot))
             return
         if path == API_PREFIX + "/imports/preview":
             items = prepare_import(self._read_json(8_000_000))

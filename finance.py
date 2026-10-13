@@ -185,6 +185,27 @@ class FinanceStore:
                     source TEXT NOT NULL DEFAULT 'XP'
                 )
             """)
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS investment_snapshots (
+                    as_of TEXT PRIMARY KEY,
+                    total_cents INTEGER NOT NULL,
+                    assets_cents INTEGER NOT NULL,
+                    receivables_cents INTEGER NOT NULL,
+                    cash_cents INTEGER NOT NULL
+                )
+            """)
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS investment_positions (
+                    as_of TEXT NOT NULL REFERENCES investment_snapshots(as_of),
+                    name TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    value_cents INTEGER NOT NULL,
+                    cost_cents INTEGER NOT NULL,
+                    quantity TEXT,
+                    net_cents INTEGER,
+                    PRIMARY KEY (as_of, category, name)
+                )
+            """)
             memory_exists = connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'category_memory'"
             ).fetchone()
@@ -641,8 +662,39 @@ class FinanceStore:
         return {"imported": imported, "skipped": len(entries) - imported,
                 "matched_transfers": matched}
 
+    def preview_xp_positions(self, snapshot: dict) -> dict:
+        with self._connect() as connection:
+            existing = connection.execute(
+                "SELECT 1 FROM investment_snapshots WHERE as_of = ?", (snapshot["as_of"],)
+            ).fetchone()
+        return {**snapshot, "replaces_existing": bool(existing)}
+
+    def import_xp_positions(self, snapshot: dict) -> dict:
+        with self._connect() as connection:
+            replacing = bool(connection.execute(
+                "SELECT 1 FROM investment_snapshots WHERE as_of = ?", (snapshot["as_of"],)
+            ).fetchone())
+            connection.execute("""
+                INSERT INTO investment_snapshots
+                    (as_of, total_cents, assets_cents, receivables_cents, cash_cents)
+                VALUES (:as_of, :total_cents, :assets_cents, :receivables_cents, :cash_cents)
+                ON CONFLICT(as_of) DO UPDATE SET
+                    total_cents = excluded.total_cents,
+                    assets_cents = excluded.assets_cents,
+                    receivables_cents = excluded.receivables_cents,
+                    cash_cents = excluded.cash_cents
+            """, snapshot)
+            connection.execute("DELETE FROM investment_positions WHERE as_of = ?", (snapshot["as_of"],))
+            connection.executemany("""
+                INSERT INTO investment_positions
+                    (as_of, name, category, value_cents, cost_cents, quantity, net_cents)
+                VALUES (:as_of, :name, :category, :value_cents, :cost_cents, :quantity, :net_cents)
+            """, [{**asset, "as_of": snapshot["as_of"]} for asset in snapshot["assets"]])
+        return {"as_of": snapshot["as_of"], "total_cents": snapshot["total_cents"],
+                "asset_count": len(snapshot["assets"]), "replaced": replacing}
+
     def investment_overview(self, end_month: str, months: int = 6) -> dict:
-        """Report recorded XP deposits, never the value or return of the portfolio."""
+        """Report deposits and dated XP portfolio snapshots as separate measures."""
         end_month = validate_month(end_month)
         if isinstance(months, bool) or not isinstance(months, int) or not 1 <= months <= 24:
             raise ValidationError("Escolha de 1 a 24 meses para os investimentos.")
@@ -657,6 +709,19 @@ class FinanceStore:
                        matched_transaction_id
                 FROM investment_entries WHERE occurred_at < ? ORDER BY occurred_at
             """, (last_day,))]
+            snapshot_row = connection.execute("""
+                SELECT * FROM investment_snapshots WHERE as_of < ? ORDER BY as_of DESC LIMIT 1
+            """, (last_day,)).fetchone()
+            position = dict(snapshot_row) if snapshot_row else None
+            if position:
+                position["assets"] = [dict(row) for row in connection.execute("""
+                    SELECT name, category, value_cents, cost_cents, quantity, net_cents
+                    FROM investment_positions WHERE as_of = ? ORDER BY value_cents DESC, name
+                """, (position["as_of"],))]
+            snapshots = [dict(row) for row in connection.execute("""
+                SELECT as_of, total_cents FROM investment_snapshots
+                WHERE as_of >= ? AND as_of < ? ORDER BY as_of
+            """, (first_day, last_day))]
         deposited_by_month = {month: 0 for month in month_list}
         seen_months = set()
         total_deposited = 0
@@ -704,7 +769,8 @@ class FinanceStore:
                 "period_deposited_cents": period_deposited,
                 "matched_count": matched_count, "matched_cents": matched_cents,
                 "movement_count": len(movements),
-                "movements": list(reversed(movements[-60:]))}
+                "movements": list(reversed(movements[-60:])),
+                "position": position, "position_history": snapshots}
 
     def invoice_history(self, scope: str = "personal") -> list[dict]:
         scope = validate_scope(scope, allow_all=True)

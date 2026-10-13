@@ -48,6 +48,13 @@
 .investment-cards .metric small{line-height:1.4}
 .investment-note{margin:17px 0 0;padding:14px 17px;border:1px solid #d5e7e0;border-left:4px solid #00a87b;border-radius:10px;background:#f2faf6;color:#416357;font-size:13px;line-height:1.5}
 .investment-history{margin-top:20px}
+.investment-portfolio{margin-top:20px}
+.investment-portfolio .panel-intro{line-height:1.55}
+.allocation-row{margin:14px 0 18px}
+.allocation-row .category-label{display:flex;justify-content:space-between;gap:12px;font-size:13px;margin-bottom:7px}
+.allocation-row .bar-track{height:12px;border-radius:999px;overflow:hidden;background:#edf1eb}
+.allocation-row .bar-fill{height:100%;border-radius:999px;transition:width .3s ease}
+#investment-assets{margin-top:22px;border-top:1px solid #edf1eb}
 .investment-history .panel-header{margin-bottom:8px}
 .investment-row{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:14px 0;border-top:1px solid #edf1eb}
 .investment-row:first-child{border-top:0}

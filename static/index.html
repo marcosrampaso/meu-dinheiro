@@ -9,6 +9,7 @@
   <script src="/app.js" defer></script>
   <script src="/import.js" defer></script>
   <script src="/xp-import.js" defer></script>
+  <script src="/xp-positions.js" defer></script>
   <script src="/charts.js" defer></script>
   <script src="/investments.js" defer></script>
   <script src="/categories.js" defer></script>
@@ -151,7 +152,7 @@
 
       <section id="investments-view" class="app-view" role="tabpanel" aria-labelledby="investments-tab" hidden>
         <div class="investment-hero">
-          <div><p class="eyebrow">VISÃO DE INVESTIMENTOS</p><h1>Seus aportes na XP</h1><p>Movimentações registradas nos extratos importados.</p></div>
+          <div><p class="eyebrow">VISÃO DE INVESTIMENTOS</p><h1>Sua carteira XP</h1><p>Posição da carteira e movimentações dos extratos importados.</p></div>
           <div class="view-controls"><label class="month-picker">Até o mês <input id="investment-month" type="month" aria-label="Mês dos investimentos"></label><label class="month-picker">Período <select id="investment-months" aria-label="Período dos investimentos"><option value="6">6 meses</option><option value="12">12 meses</option><option value="24">24 meses</option></select></label></div>
         </div>
         <div id="investment-status" class="import-status" role="status" aria-live="polite"></div>
@@ -159,9 +160,15 @@
           <article class="metric metric-balance"><span>Aportes registrados até o mês</span><strong id="investment-total">—</strong><small>Entradas por PIX na XP</small></article>
           <article class="metric"><span>Aportes no período</span><strong id="investment-period-total">—</strong><small>Conforme extratos importados</small></article>
           <article class="metric"><span>PIX conciliados com o Inter</span><strong id="investment-matched">—</strong><small id="investment-matched-amount">—</small></article>
-          <article class="metric"><span>Patrimônio e rendimento</span><strong>—</strong><small>Precisa do relatório de posição da XP</small></article>
+          <article class="metric"><span>Patrimônio na XP</span><strong id="investment-portfolio-total">—</strong><small id="investment-position-date">Importe a posição detalhada</small></article>
         </section>
-        <p class="investment-note">O extrato mostra o dinheiro que entrou na XP e saiu da conta para aplicações. Esses dois passos não são somados duas vezes. O saldo da conta XP não representa o valor dos investimentos.</p>
+        <p class="investment-note">Aportes mostram dinheiro transferido para a XP. Patrimônio mostra o valor da carteira na data da planilha. São medidas diferentes e não são somadas.</p>
+        <section class="panel investment-portfolio" aria-labelledby="investment-portfolio-title">
+          <div class="panel-header"><div><p class="eyebrow">POSIÇÃO XP</p><h2 id="investment-portfolio-title">Composição da carteira</h2></div><span id="investment-portfolio-count" class="count">—</span></div>
+          <p id="investment-portfolio-note" class="panel-intro">Importe a posição detalhada da XP para ver os ativos.</p>
+          <div id="investment-allocation" aria-label="Gráfico de composição da carteira"></div>
+          <div id="investment-assets"></div>
+        </section>
         <section class="charts-section" aria-labelledby="investment-charts-title">
           <div class="charts-heading"><div><p class="eyebrow">EVOLUÇÃO</p><h2 id="investment-charts-title">Aportes ao longo do tempo</h2><p>Gráficos montados a partir dos CSVs da XP salvos neste computador.</p></div></div>
           <div class="charts-grid">
@@ -170,6 +177,11 @@
           </div>
         </section>
         <section class="panel investment-history" aria-labelledby="investment-history-title"><div class="panel-header"><div><p class="eyebrow">HISTÓRICO XP</p><h2 id="investment-history-title">Movimentações</h2></div><span id="investment-count" class="count">—</span></div><div id="investment-movements"></div></section>
+        <section class="panel import-panel" aria-labelledby="xp-position-import-title">
+          <div class="panel-header"><div><p class="eyebrow">IMPORTAÇÃO</p><h2 id="xp-position-import-title">Importar posição detalhada</h2></div></div>
+          <p class="panel-intro">Envie o XLSX “Posição detalhada” da XP. Cada planilha salva uma fotografia da carteira na data de emissão; repetir a mesma data atualiza essa fotografia.</p>
+          <form id="xp-position-form"><div class="import-fields"><label>Posição detalhada XLSX<input name="file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required></label></div><div id="xp-position-status" class="import-status" role="status" aria-live="polite"></div><div class="form-actions"><button class="primary-button" type="submit">Ver prévia da posição</button><button id="xp-position-button" class="secondary-button" type="button" disabled>Importar posição</button></div><div id="xp-position-preview" class="import-preview" hidden></div></form>
+        </section>
         <section class="panel import-panel" aria-labelledby="xp-import-title">
           <div class="panel-header"><div><p class="eyebrow">IMPORTAÇÃO</p><h2 id="xp-import-title">Importar extrato da XP</h2></div></div>
           <p class="panel-intro">Envie um CSV da conta XP para atualizar o histórico e confirmar transferências feitas pelo Inter. Você pode repetir períodos sem duplicar lançamentos.</p>
