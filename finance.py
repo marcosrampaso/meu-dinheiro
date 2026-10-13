@@ -198,6 +198,20 @@ class FinanceStore:
                 )
             """)
             connection.execute("""
+                CREATE TABLE IF NOT EXISTS investment_manual_snapshots (
+                    as_of TEXT PRIMARY KEY,
+                    total_cents INTEGER NOT NULL CHECK (total_cents > 0)
+                )
+            """)
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS investment_manual_flows (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    occurred_on TEXT NOT NULL,
+                    kind TEXT NOT NULL CHECK (kind IN ('deposit', 'withdrawal')),
+                    amount_cents INTEGER NOT NULL CHECK (amount_cents > 0)
+                )
+            """)
+            connection.execute("""
                 CREATE TABLE IF NOT EXISTS investment_positions (
                     as_of TEXT NOT NULL REFERENCES investment_snapshots(as_of),
                     name TEXT NOT NULL,
@@ -762,6 +776,8 @@ class FinanceStore:
 
     def investment_overview(self, end_month: str, months: int = 6) -> dict:
         """Report deposits and dated XP portfolio snapshots as separate measures."""
+        from manual_investments import imported_flow_kind, manual_overview
+
         end_month = validate_month(end_month)
         if isinstance(months, bool) or not isinstance(months, int) or not 1 <= months <= 24:
             raise ValidationError("Escolha de 1 a 24 meses para os investimentos.")
@@ -772,9 +788,11 @@ class FinanceStore:
         last_day = _next_month(end_month) + "-01"
         with self._connect() as connection:
             rows = [dict(row) for row in connection.execute("""
-                SELECT occurred_at, description, amount_cents, balance_cents,
-                       matched_transaction_id
-                FROM investment_entries WHERE occurred_at < ? ORDER BY occurred_at
+                SELECT e.occurred_at, e.description, e.amount_cents, e.balance_cents,
+                       e.matched_transaction_id, c.classification AS flow_classification
+                FROM investment_entries AS e LEFT JOIN investment_flow_classifications AS c
+                  ON c.import_key = e.import_key
+                WHERE e.occurred_at < ? ORDER BY e.occurred_at
             """, (last_day,))]
             snapshot_row = connection.execute("""
                 SELECT * FROM investment_snapshots WHERE as_of < ? ORDER BY as_of DESC LIMIT 1
@@ -789,6 +807,23 @@ class FinanceStore:
                 SELECT as_of, total_cents FROM investment_snapshots
                 WHERE as_of >= ? AND as_of < ? ORDER BY as_of
             """, (first_day, last_day))]
+        manual = manual_overview(self)
+        manual_positions = [row for row in manual["snapshots"] if row["as_of"] < last_day]
+        latest_totals = {}
+        if position:
+            latest_totals[position["as_of"]] = {"as_of": position["as_of"],
+                                                 "total_cents": position["total_cents"], "source": "xp"}
+        latest_totals.update({row["as_of"]: {**row, "source": "manual"} for row in manual_positions})
+        latest_total = max(latest_totals.values(), key=lambda row: row["as_of"]) if latest_totals else None
+        for flow in manual["flows"]:
+            if flow["occurred_on"] >= last_day or flow["matched_import"]:
+                continue
+            rows.append({"occurred_at": flow["occurred_on"] + "T12:00:00",
+                         "description": "Aporte manual" if flow["kind"] == "deposit" else "Resgate manual",
+                         "amount_cents": flow["amount_cents"] * (1 if flow["kind"] == "deposit" else -1),
+                         "balance_cents": 0, "matched_transaction_id": None,
+                         "manual_kind": flow["kind"]})
+        rows.sort(key=lambda row: row["occurred_at"])
         deposited_by_month = {month: 0 for month in month_list}
         seen_months = set()
         total_deposited = 0
@@ -799,7 +834,10 @@ class FinanceStore:
         for row in rows:
             occurred_on = row["occurred_at"][:10]
             month = occurred_on[:7]
-            is_deposit = row["amount_cents"] > 0 and row["description"].casefold().startswith("pix recebido")
+            is_deposit = row.get("manual_kind") == "deposit" or (
+                row["amount_cents"] > 0 and
+                (row.get("flow_classification") or imported_flow_kind(
+                    row["description"], row["amount_cents"])) == "external")
             if is_deposit:
                 total_deposited += row["amount_cents"]
             if occurred_on < first_day:
@@ -814,11 +852,13 @@ class FinanceStore:
             movements.append({"occurred_at": row["occurred_at"],
                               "description": row["description"],
                               "amount_cents": row["amount_cents"],
-                              "type": "deposit" if is_deposit else
+                              "type": "withdrawal" if row.get("manual_kind") == "withdrawal" else
+                                      "deposit" if is_deposit else
                                       "allocation" if row["amount_cents"] < 0 and
                                       ("investimento" in row["description"].casefold() or
                                        "apl." in row["description"].casefold()) else "other",
-                              "matched_inter": bool(row["matched_transaction_id"])})
+                              "matched_inter": bool(row["matched_transaction_id"]),
+                              "manual": bool(row.get("manual_kind"))})
         cumulative = total_deposited - period_deposited
         series = []
         first_seen = next((month for month in month_list if month in seen_months), None)
@@ -837,7 +877,7 @@ class FinanceStore:
                 "matched_count": matched_count, "matched_cents": matched_cents,
                 "movement_count": len(movements),
                 "movements": list(reversed(movements[-60:])),
-                "position": position, "position_history": snapshots}
+                "position": position, "position_history": snapshots, "latest_total": latest_total}
 
     def latest_investment_position(self) -> dict | None:
         with self._connect() as connection:

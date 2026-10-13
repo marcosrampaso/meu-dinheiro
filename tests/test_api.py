@@ -83,6 +83,21 @@ class ApiTests(unittest.TestCase):
         status, _ = self.call_api(f"/api/v1/transactions/{item_id}")
         self.assertEqual(status, 404)
 
+    def test_manual_investment_endpoints(self):
+        status, flow = self.call_api("/api/v1/investments/manual/flows", "POST",
+                                     {"occurred_on": "2024-01-05", "kind": "deposit", "amount": "150,00"})
+        self.assertEqual((status, flow["amount_cents"]), (201, 15000))
+        status, updated = self.call_api(f"/api/v1/investments/manual/flows/{flow['id']}", "PUT",
+                                         {"occurred_on": "2024-01-06", "kind": "withdrawal", "amount": "25,00"})
+        self.assertEqual((status, updated["kind"]), (200, "withdrawal"))
+        self.assertEqual(self.call_api("/api/v1/investments/manual/snapshots", "POST",
+                                       {"as_of": "2024-01-06", "total": "1.000,00"})[0], 201)
+        status, overview = self.call_api("/api/v1/investments/manual")
+        self.assertEqual((status, len(overview["flows"]), len(overview["snapshots"])), (200, 1, 1))
+        self.assertEqual(self.call_api(f"/api/v1/investments/manual/flows/{flow['id']}", "DELETE")[0], 200)
+        self.assertEqual(self.call_api("/api/v1/investments/manual/snapshots/2024-01-06", "DELETE")[0], 200)
+        self.assertEqual(self.call_api("/api/v1/investments/manual")[1]["flows"], [])
+
     def test_bad_input_and_cross_origin_write_are_rejected(self):
         status, _ = self.call_api("/api/v1/summary?month=wrong")
         self.assertEqual(status, 400)

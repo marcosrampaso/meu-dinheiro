@@ -156,7 +156,7 @@ function renderInvestmentMovements(data) {
     target.append(empty);
     return;
   }
-  const labels = { deposit: "Aporte", allocation: "Aplicação", other: "Outra movimentação" };
+  const labels = { deposit: "Aporte", withdrawal: "Resgate", allocation: "Aplicação", other: "Outra movimentação" };
   for (const item of data.movements) {
     const row = document.createElement("div");
     row.className = "investment-row";
@@ -164,7 +164,7 @@ function renderInvestmentMovements(data) {
     const name = document.createElement("strong");
     name.textContent = item.description;
     const meta = document.createElement("small");
-    meta.textContent = `${labels[item.type]} · ${formatDate(item.occurred_at.slice(0, 10))} ${item.occurred_at.slice(11, 16)}${item.matched_inter ? " · Conciliado com Inter" : ""}`;
+    meta.textContent = `${labels[item.type]} · ${formatDate(item.occurred_at.slice(0, 10))}${item.manual ? " · Inserido manualmente" : ` ${item.occurred_at.slice(11, 16)}`}${item.matched_inter ? " · Conciliado com Inter" : ""}`;
     details.append(name, meta);
     const amount = document.createElement("b");
     amount.className = item.amount_cents > 0 ? "investment-in" : "investment-out";
@@ -174,26 +174,26 @@ function renderInvestmentMovements(data) {
   }
 }
 
-function renderInvestmentPosition(position) {
+function renderInvestmentPosition(position, latestTotal) {
   const allocation = document.querySelector("#investment-allocation");
   const assets = document.querySelector("#investment-assets");
   allocation.replaceChildren();
   assets.replaceChildren();
   if (!position) {
-    document.querySelector("#investment-portfolio-total").textContent = "—";
-    document.querySelector("#investment-position-date").textContent = "Importe a posição detalhada";
+    document.querySelector("#investment-portfolio-total").textContent = latestTotal ? money.format(latestTotal.total_cents / 100) : "—";
+    document.querySelector("#investment-position-date").textContent = latestTotal ? `Saldo manual de ${formatDate(latestTotal.as_of)}` : "Importe a posição detalhada";
     document.querySelector("#investment-portfolio-count").textContent = "—";
     document.querySelector("#investment-portfolio-note").textContent = "Não há posição importada até este mês.";
     renderInvestmentReturns(null);
     return;
   }
-  document.querySelector("#investment-portfolio-total").textContent = money.format(position.total_cents / 100);
-  document.querySelector("#investment-position-date").textContent = `Posição de ${formatDate(position.as_of)}`;
+  document.querySelector("#investment-portfolio-total").textContent = money.format((latestTotal || position).total_cents / 100);
+  document.querySelector("#investment-position-date").textContent = `${latestTotal?.source === "manual" ? "Saldo manual" : "Posição"} de ${formatDate((latestTotal || position).as_of)}`;
   document.querySelector("#investment-portfolio-count").textContent = `${position.assets.length} ativos`;
   const cost = position.assets.reduce((sum, asset) => sum + asset.cost_cents, 0);
   const difference = position.assets_cents - cost;
   document.querySelector("#investment-portfolio-note").textContent =
-    `Ativos: ${money.format(position.assets_cents / 100)} · Proventos a receber: ${money.format(position.receivables_cents / 100)} · Diferença entre valor bruto e custo dos ativos: ${difference < 0 ? "−" : "+"}${money.format(Math.abs(difference) / 100)}. Não equivale ao rendimento total da carteira.`;
+    `Composição importada de ${formatDate(position.as_of)}. Ativos: ${money.format(position.assets_cents / 100)} · Proventos a receber: ${money.format(position.receivables_cents / 100)} · Diferença entre valor bruto e custo dos ativos: ${difference < 0 ? "−" : "+"}${money.format(Math.abs(difference) / 100)}. Não equivale ao rendimento total da carteira.`;
   const colors = { "Ações": "#8658ed", "Fundos de Investimentos": "#00a87b", "Fundos Imobiliários": "#ef8a37" };
   const byCategory = new Map();
   for (const asset of position.assets) byCategory.set(asset.category, (byCategory.get(asset.category) || 0) + asset.value_cents);
@@ -392,7 +392,7 @@ async function refreshInvestments() {
     document.querySelector("#investment-period-total").textContent = money.format(data.period_deposited_cents / 100);
     document.querySelector("#investment-matched").textContent = `${data.matched_count} PIX`;
     document.querySelector("#investment-matched-amount").textContent = `${money.format(data.matched_cents / 100)} no período`;
-    renderInvestmentPosition(data.position);
+    renderInvestmentPosition(data.position, data.latest_total);
     void refreshMarketReturns();
     drawBars(document.querySelector("#investment-deposits-chart"), data.months,
       "Aportes por mês na XP", [{ key: "deposits_cents", label: "Aportes", color: "#00a87b" }],

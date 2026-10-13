@@ -27,6 +27,8 @@ from planning import (budget_overview, save_budget, delete_budget, data_health,
                       calendar_overview, save_commitment, delete_commitment,
                       save_card_due_rule, delete_card_due_rule)
 from performance import performance_overview, classify_flow
+from manual_investments import (manual_overview, save_manual_flow, delete_manual_flow,
+                                save_manual_snapshot, delete_manual_snapshot)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -42,6 +44,7 @@ STATIC_FILES = {
     "/weekly.js": (BASE_DIR / "static" / "weekly.js", "text/javascript; charset=utf-8"),
     "/planning.js": (BASE_DIR / "static" / "planning.js", "text/javascript; charset=utf-8"),
     "/performance.js": (BASE_DIR / "static" / "performance.js", "text/javascript; charset=utf-8"),
+    "/manual-investments.js": (BASE_DIR / "static" / "manual-investments.js", "text/javascript; charset=utf-8"),
     "/charts.js": (BASE_DIR / "static" / "charts.js", "text/javascript; charset=utf-8"),
     "/categories.js": (BASE_DIR / "static" / "categories.js", "text/javascript; charset=utf-8"),
     "/manual-card.js": (BASE_DIR / "static" / "manual-card.js", "text/javascript; charset=utf-8"),
@@ -217,6 +220,9 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if path == API_PREFIX + "/investments/performance":
             self._json(HTTPStatus.OK, performance_overview(self.server.store))
             return
+        if path == API_PREFIX + "/investments/manual":
+            self._json(HTTPStatus.OK, manual_overview(self.server.store))
+            return
         if path == API_PREFIX + "/weekly-summary":
             context = weekly_context(self.server.store, self._scope(query))
             self._json(HTTPStatus.OK, {"period": {key: value for key, value in context.items() if key != "signature"},
@@ -305,6 +311,14 @@ class FinanceHandler(BaseHTTPRequestHandler):
             snapshot = parse_xp_positions(data.get("filename"), data.get("content_base64"))
             self._json(HTTPStatus.CREATED, self.server.store.import_xp_positions(snapshot))
             self.server.market.wake()
+            self.server.cdi.wake()
+            return
+        if path == API_PREFIX + "/investments/manual/flows":
+            self._json(HTTPStatus.CREATED, save_manual_flow(self.server.store, self._read_json()))
+            return
+        if path == API_PREFIX + "/investments/manual/snapshots":
+            self._json(HTTPStatus.CREATED, save_manual_snapshot(self.server.store, self._read_json()))
+            self.server.cdi.wake()
             return
         if path == API_PREFIX + "/investments/brapi-token":
             self.server.market.save_token(self._read_json().get("token"))
@@ -396,6 +410,12 @@ class FinanceHandler(BaseHTTPRequestHandler):
             classify_flow(self.server.store, import_key, self._read_json().get("classification"))
             self._json(HTTPStatus.OK, {"classification_saved": True})
             return
+        if path.startswith(API_PREFIX + "/investments/manual/flows/"):
+            raw_id = path.removeprefix(API_PREFIX + "/investments/manual/flows/")
+            if not raw_id.isdecimal():
+                raise ValidationError("Aporte ou resgate inválido.")
+            self._json(HTTPStatus.OK, save_manual_flow(self.server.store, self._read_json(), int(raw_id)))
+            return
         transaction_id = self._transaction_id(path)
         if transaction_id is None:
             self._json(HTTPStatus.NOT_FOUND, {"error": "Rota não encontrada."})
@@ -427,6 +447,18 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if path == API_PREFIX + "/investments/brapi-token":
             self.server.market.delete_token()
             self._json(HTTPStatus.OK, {"configured": False})
+            return
+        if path.startswith(API_PREFIX + "/investments/manual/flows/"):
+            raw_id = path.removeprefix(API_PREFIX + "/investments/manual/flows/")
+            if not raw_id.isdecimal():
+                raise ValidationError("Aporte ou resgate inválido.")
+            delete_manual_flow(self.server.store, int(raw_id))
+            self._json(HTTPStatus.OK, {"deleted": True})
+            return
+        if path.startswith(API_PREFIX + "/investments/manual/snapshots/"):
+            as_of = path.removeprefix(API_PREFIX + "/investments/manual/snapshots/")
+            delete_manual_snapshot(self.server.store, as_of)
+            self._json(HTTPStatus.OK, {"deleted": True})
             return
         transaction_id = self._transaction_id(path)
         if transaction_id is None:

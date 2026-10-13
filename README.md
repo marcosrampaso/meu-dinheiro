@@ -35,6 +35,7 @@ O banco padrão fica em `data/financas.db` e é criado na primeira execução. *
 - Registro manual de compras no cartão, vinculado ao mês da fatura.
 - Conferência de cobertura dos extratos e faturas por mês, orçamento mensal por categoria e calendário de vencimentos recorrentes.
 - Comparação estimada da carteira XP com o CDI quando houver pelo menos duas posições datadas.
+- Cadastro e edição manual de aportes, resgates e patrimônio total da XP por data, com conciliação de aportes que depois aparecem no CSV.
 
 As **saídas das contas** incluem pagamentos de fatura. As compras feitas no cartão aparecem na data da compra e no histórico da fatura, sem serem somadas novamente ao fluxo de caixa. Transferências internas e cashback identificados ficam fora da receita consolidada. Confira as marcações após importar novos formatos de extrato.
 
@@ -55,6 +56,10 @@ Na mesma aba, **Importar posição detalhada** aceita o arquivo XLSX exportado p
 O gráfico **Rendimento por ativo** usa `valor bruto − custo` da posição selecionada e mostra essa variação em reais e percentual. O total do gráfico soma apenas os ativos da fotografia; proventos a receber, impostos e taxas não entram. Ele não calcula a rentabilidade histórica da carteira.
 
 O quadro **Seu rendimento contra o CDI** aparece quando houver duas ou mais fotografias da XP em datas distintas. Entre posições, ele estima o retorno da conta pelo [método Dietz modificado](https://rpc.cfainstitute.org/sites/default/files/-/media/documents/article/rf-brief/investment-model-validation.pdf): subtrai aportes e saques externos e pondera cada fluxo pelos dias restantes. PIX/TED recebidos ou enviados são reconhecidos como fluxos externos; transferências ambíguas exigem classificação na tela antes do cálculo. O comparador aplica as taxas diárias do CDI ao mesmo capital inicial e aos mesmos fluxos nas respectivas datas. Os retornos dos intervalos são encadeados no gráfico. O resultado é uma **estimativa da conta XP**, sujeita à qualidade do extrato e das fotografias, não a rentabilidade oficial da corretora. Com uma única posição, o quadro explica que falta outra fotografia. O cache do CDI é ampliado para posições históricas quando necessário.
+
+Em **Aportes e resgates**, informe o dia e o valor transferido para dentro ou para fora da XP. Os registros podem ser editados e excluídos. Aplicações e resgates entre ativos dentro da própria XP não são fluxos externos. Um registro manual que coincida em data, valor e sentido com um fluxo externo do CSV é exibido, mas contado uma só vez no gráfico e no cálculo. Se houver duas transferências iguais no mesmo dia, confira cada registro na lista.
+
+Em **Saldo total em uma data**, informe o patrimônio total mostrado pela XP naquela data, incluindo ativos, saldo disponível e proventos a receber. O app usa esse número como fotografia no comparador com o CDI; duas datas distintas são necessárias. Você pode editar o valor salvo para uma data ou excluí-lo. Quando existe também um XLSX na mesma data, o saldo manual prevalece somente para o gráfico comparativo e o indicador de patrimônio; a composição detalhada e a pesquisa de ativos continuam baseadas no XLSX. Datas da cota de fundos não equivalem à data da posição da carteira. Os dados manuais ficam apenas no SQLite local.
 
 O gráfico separado **CDI acumulado** consulta a série diária 12 do [Banco Central](https://www3.bcb.gov.br/sgspub/consultarvalores/consultarValoresSeries.do?method=consultarSeries&series=12), soma os dias úteis por juros compostos e permite escolher 1, 3, 6 ou 12 meses. A consulta começa ao iniciar o servidor e se repete a cada três horas; os valores públicos ficam em cache no SQLite. O gráfico mostra a data do último dado publicado e sinaliza quando a atualização falha ou está atrasada. É uma referência percentual bruta, sem impostos ou taxas; não representa o rendimento da sua carteira XP.
 
@@ -120,6 +125,11 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | GET | `/investments/cdi?months=6` | CDI diário acumulado (1, 3, 6 ou 12 meses), com data e fonte do Banco Central |
 | GET | `/investments/performance` | Estimativa Dietz da carteira XP comparada ao CDI sob os mesmos fluxos |
 | PUT | `/investments/flows/{import_key}` | Classifica uma transferência XP como `external` ou `internal` após revisão |
+| GET | `/investments/manual` | Lista aportes, resgates e saldos manuais |
+| POST | `/investments/manual/flows` | Cria aporte ou resgate (`occurred_on`, `kind`, `amount`) |
+| PUT/DELETE | `/investments/manual/flows/{id}` | Edita ou exclui aporte ou resgate |
+| POST | `/investments/manual/snapshots` | Cria ou atualiza saldo total da carteira (`as_of`, `total`) |
+| DELETE | `/investments/manual/snapshots/{AAAA-MM-DD}` | Exclui saldo manual daquela data |
 | GET/POST | `/weekly-summary` | Totais semanais agregados e geração sob demanda de insights com Luna; `scope` aceita `personal`, `business` ou `all` |
 | GET | `/investments/market-returns` | Estimativas por ativo, datas e fontes das cotações, estado do token e da consulta |
 | POST | `/investments/brapi-token` | Salvar token local da brapi (`{"token":"..."}`) |

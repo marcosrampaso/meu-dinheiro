@@ -16,6 +16,7 @@
   <script src="/weekly.js" defer></script>
   <script src="/planning.js" defer></script>
   <script src="/performance.js" defer></script>
+  <script src="/manual-investments.js" defer></script>
   <script src="/categories.js" defer></script>
   <script src="/manual-card.js" defer></script>
 </head>
@@ -241,11 +242,27 @@
           <div id="performance-flows" class="performance-flows"></div>
           <p class="chart-note">Estimativa pelo método Dietz modificado; pode diferir da rentabilidade oficial da XP. O CDI é bruto e não considera impostos ou taxas. Revise os fluxos externos antes de comparar.</p>
         </section>
+        <div class="manual-investment-grid">
+          <section class="panel" aria-labelledby="manual-flow-title">
+            <div class="panel-header"><div><p class="eyebrow">REGISTRO MANUAL</p><h2 id="manual-flow-title">Aportes e resgates</h2></div></div>
+            <p class="panel-intro">Informe quando transferiu dinheiro para a XP ou retirou. Aplicações entre fundos dentro da XP não são novos aportes.</p>
+            <form id="manual-flow-form" class="planning-form"><label>Data<input name="occurred_on" type="date" required></label><label>Tipo<select name="kind"><option value="deposit">Aporte</option><option value="withdrawal">Resgate</option></select></label><label>Valor (R$)<input name="amount" inputmode="decimal" placeholder="0,00" required></label><div class="manual-form-actions"><button class="secondary-button" type="submit">Adicionar</button><button class="text-button" type="button" data-cancel hidden>Cancelar edição</button></div></form>
+            <div id="manual-flow-status" class="import-status" role="status" aria-live="polite"></div><div id="manual-flow-list" class="manual-investment-list"></div>
+            <p class="chart-note">Se um aporte manual também aparecer no CSV da XP com a mesma data e valor, ele é contado uma vez só.</p>
+          </section>
+          <section class="panel" aria-labelledby="manual-snapshot-title">
+            <div class="panel-header"><div><p class="eyebrow">FOTOGRAFIA DA CARTEIRA</p><h2 id="manual-snapshot-title">Saldo total em uma data</h2></div></div>
+            <p class="panel-intro">Copie o patrimônio total da XP, incluindo ativos, saldo disponível e proventos a receber. Uma segunda data permite estimar o rendimento.</p>
+            <form id="manual-snapshot-form" class="planning-form"><label>Data da carteira<input name="as_of" type="date" required></label><label>Patrimônio total (R$)<input name="total" inputmode="decimal" placeholder="0,00" required></label><div class="manual-form-actions"><button class="secondary-button" type="submit">Salvar saldo</button><button class="text-button" type="button" data-cancel hidden>Cancelar edição</button></div></form>
+            <div id="manual-snapshot-status" class="import-status" role="status" aria-live="polite"></div><div id="manual-snapshot-list" class="manual-investment-list"></div>
+            <p class="chart-note">Esse total serve ao gráfico de rendimento. A composição dos ativos continua vindo da planilha XLSX. Um saldo manual na mesma data prevalece apenas no gráfico comparativo.</p>
+          </section>
+        </div>
         <section class="charts-section" aria-labelledby="investment-charts-title">
-          <div class="charts-heading"><div><p class="eyebrow">EVOLUÇÃO</p><h2 id="investment-charts-title">Aportes ao longo do tempo</h2><p>Gráficos montados a partir dos CSVs da XP salvos neste computador.</p></div></div>
+          <div class="charts-heading"><div><p class="eyebrow">EVOLUÇÃO</p><h2 id="investment-charts-title">Aportes ao longo do tempo</h2><p>Gráficos montados a partir dos CSVs da XP e dos aportes manuais, sem duplicar datas e valores iguais.</p></div></div>
           <div class="charts-grid">
-            <article class="panel chart-panel" aria-labelledby="investment-deposits-title"><div class="panel-header"><div><h3 id="investment-deposits-title">Aportes por mês</h3><p>PIX recebidos na XP</p></div></div><div id="investment-deposits-chart" class="chart-area" aria-live="polite"></div><div id="investment-deposits-insight" class="chart-insight" aria-live="polite">Selecione uma barra para ver o valor.</div><p class="chart-note">Meses sem lançamentos nos CSVs aparecem vazios.</p></article>
-            <article class="panel chart-panel" aria-labelledby="investment-cumulative-title"><div class="panel-header"><div><h3 id="investment-cumulative-title">Aportes acumulados</h3><p>Soma dos PIX recebidos até cada mês</p></div></div><div id="investment-cumulative-chart" class="chart-area" aria-live="polite"></div><div id="investment-cumulative-insight" class="chart-insight" aria-live="polite">Selecione um ponto para ver o valor.</div><p class="chart-note">Aportes acumulados não são patrimônio nem rendimento.</p></article>
+            <article class="panel chart-panel" aria-labelledby="investment-deposits-title"><div class="panel-header"><div><h3 id="investment-deposits-title">Aportes por mês</h3><p>PIX recebidos na XP e aportes manuais</p></div></div><div id="investment-deposits-chart" class="chart-area" aria-live="polite"></div><div id="investment-deposits-insight" class="chart-insight" aria-live="polite">Selecione uma barra para ver o valor.</div><p class="chart-note">Meses sem movimentações registradas aparecem vazios.</p></article>
+            <article class="panel chart-panel" aria-labelledby="investment-cumulative-title"><div class="panel-header"><div><h3 id="investment-cumulative-title">Aportes acumulados</h3><p>Soma dos aportes registrados até cada mês</p></div></div><div id="investment-cumulative-chart" class="chart-area" aria-live="polite"></div><div id="investment-cumulative-insight" class="chart-insight" aria-live="polite">Selecione um ponto para ver o valor.</div><p class="chart-note">Aportes acumulados não são patrimônio nem rendimento.</p></article>
           </div>
         </section>
         <section class="panel investment-history" aria-labelledby="investment-history-title"><div class="panel-header"><div><p class="eyebrow">HISTÓRICO XP</p><h2 id="investment-history-title">Movimentações</h2></div><span id="investment-count" class="count">—</span></div><div id="investment-movements"></div></section>

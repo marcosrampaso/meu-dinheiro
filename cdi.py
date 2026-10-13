@@ -64,6 +64,7 @@ class CDIBenchmark:
         self._checked_at: str | None = None
         self._error: str | None = None
         self._thread: threading.Thread | None = None
+        self._wake = threading.Event()
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._run, name="cdi-benchmark", daemon=True)
@@ -72,7 +73,11 @@ class CDIBenchmark:
     def _run(self) -> None:
         while True:
             self.refresh()
-            threading.Event().wait(INTERVAL_SECONDS)
+            self._wake.wait(INTERVAL_SECONDS)
+            self._wake.clear()
+
+    def wake(self) -> None:
+        self._wake.set()
 
     def refresh(self, today: date | None = None) -> None:
         today = today or date.today()
@@ -84,8 +89,10 @@ class CDIBenchmark:
             checked = datetime.now(timezone.utc).isoformat(timespec="seconds")
             self.store.save_market_quotes([{**row, "checked_at": checked} for row in rates])
             with self.store._connect() as connection:
-                earliest_position = connection.execute(
-                    "SELECT MIN(as_of) FROM investment_snapshots").fetchone()[0]
+                earliest_position = connection.execute("""SELECT MIN(as_of) FROM (
+                    SELECT as_of FROM investment_snapshots
+                    UNION ALL SELECT as_of FROM investment_manual_snapshots
+                )""").fetchone()[0]
                 oldest_rate = connection.execute("""SELECT MIN(quote_date) FROM market_quotes
                     WHERE source = 'bcb' AND identifier = '12'""").fetchone()[0]
             if earliest_position:

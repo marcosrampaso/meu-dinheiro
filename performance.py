@@ -3,27 +3,11 @@
 from __future__ import annotations
 
 import re
-import unicodedata
 from datetime import date, timedelta
 from decimal import Decimal
 
 from finance import FinanceStore, ValidationError
-
-
-def _plain(value: str) -> str:
-    return unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().casefold()
-
-
-def _flow_kind(description: str, amount_cents: int) -> str:
-    label = _plain(description).strip()
-    if amount_cents > 0 and re.match(r"^(pix recebido|ted recebida|ted recebido)\b", label):
-        return "external"
-    if amount_cents < 0 and re.match(r"^(pix enviado|ted enviada|ted enviado)\b", label):
-        return "external"
-    if re.search(r"\b(pix|ted|transferencia)\b", label) and not re.search(
-            r"\b(investimento|aplicacao|resgate|conta investimento)\b", label):
-        return "review"
-    return "internal"
+from manual_investments import imported_flow_kind, manual_overview
 
 
 def classify_flow(store: FinanceStore, import_key: str, classification: str) -> None:
@@ -76,9 +60,15 @@ def _benchmark_end(start: dict, end: dict, flows: list[dict], rates: list[dict])
 
 def performance_overview(store: FinanceStore) -> dict:
     with store._connect() as connection:
-        snapshots = [dict(row) for row in connection.execute("""
+        imported_snapshots = [dict(row) for row in connection.execute("""
             SELECT as_of, total_cents FROM investment_snapshots ORDER BY as_of
         """)]
+        manual_snapshots = [dict(row) for row in connection.execute("""
+            SELECT as_of, total_cents FROM investment_manual_snapshots ORDER BY as_of
+        """)]
+        # An explicitly entered total wins for the comparison on the same date.
+        snapshots = sorted({row["as_of"]: row for row in imported_snapshots + manual_snapshots}.values(),
+                           key=lambda row: row["as_of"])
         if len(snapshots) < 2:
             return {"status": "needs_snapshots", "snapshot_count": len(snapshots),
                     "points": [], "flows": [], "intervals": [],
@@ -94,13 +84,19 @@ def performance_overview(store: FinanceStore) -> dict:
         """, (first, last))]
     for entry in entries:
         override = entry.pop("override")
-        entry["classification"] = override or _flow_kind(entry["description"], entry["amount_cents"])
+        entry["classification"] = override or imported_flow_kind(entry["description"], entry["amount_cents"])
         entry["manual"] = bool(override)
     visible_flows = [row for row in entries if row["classification"] in ("external", "review") or row["manual"]]
     if any(row["classification"] == "review" for row in entries):
         return {"status": "review_flows", "snapshot_count": len(snapshots),
                 "points": [], "flows": visible_flows, "intervals": [],
                 "message": "Revise as transferências XP antes de calcular a rentabilidade."}
+    manual_flows = manual_overview(store)["flows"]
+    for flow in manual_flows:
+        if first < flow["occurred_on"] <= last and not flow["matched_import"]:
+            entries.append({"occurred_at": flow["occurred_on"] + "T12:00:00",
+                            "amount_cents": flow["amount_cents"] * (1 if flow["kind"] == "deposit" else -1),
+                            "classification": "external"})
     rates = sorted(store.market_quotes("bcb", "12"), key=lambda row: row["quote_date"])
     portfolio_factor = cdi_factor = Decimal(1)
     points = [{"date": first, "portfolio_percent": 0.0, "cdi_percent": 0.0}]
