@@ -2,10 +2,13 @@ import hashlib
 import json
 import tempfile
 import unittest
+from datetime import date
+from unittest.mock import patch
 from pathlib import Path
 
 from finance import FinanceStore
-from pluggy_inter import PluggyInter, _bank_classification
+from pluggy_inter import PluggyInter, _bank_classification, card_payment, live_start
+from pluggy_sync import restore_inter_history
 from pluggy_xp import PluggyError, PluggyXP
 
 
@@ -24,6 +27,10 @@ def transaction(identifier, date, description, amount, kind, **extra):
 
 class PluggyInterTests(unittest.TestCase):
     def setUp(self):
+        clock = patch("pluggy_inter.date", wraps=date)
+        self.clock = clock.start()
+        self.clock.today.return_value = date(2026, 10, 13)
+        self.addCleanup(clock.stop)
         self.directory = tempfile.TemporaryDirectory()
         base = Path(self.directory.name)
         self.store = FinanceStore(base / "financas.db")
@@ -75,7 +82,7 @@ class PluggyInterTests(unittest.TestCase):
             ], "next": None}
         raise AssertionError(path)
 
-    def test_preview_then_import_replaces_covered_statements_and_keeps_data_private(self):
+    def test_preview_preserves_historical_statements_and_keeps_data_private(self):
         self.store.save_account_statement("Inter · conta corrente", "personal",
                                           {"starts_on": "2026-09-09", "ends_on": "2026-10-09"}, [], None)
         self.store.add_imported([{"kind": "expense", "description": "Fatura antiga",
@@ -86,9 +93,9 @@ class PluggyInterTests(unittest.TestCase):
                                   "scope": "personal"}])
         self.store.save_invoice_coverage("Inter · cartão principal", "personal", "2026-09")
         preview = self.inter.preview(self.fake_http)
-        self.assertEqual(preview["new_count"], 6)
-        self.assertEqual(preview["replaced_count"], 1)
-        self.assertEqual(preview["skipped"], {"card_payment": 1})
+        self.assertEqual(preview["new_count"], 4)
+        self.assertEqual(preview["replaced_count"], 0)
+        self.assertEqual(preview["skipped"], {"historical": 2, "card_payment": 1})
         self.assertEqual(preview["bank_balance"]["amount_cents"], 1836)
         self.assertNotIn("private-cpf", json.dumps(preview))
         self.assertNotIn("private-account-number", json.dumps(preview))
@@ -98,17 +105,18 @@ class PluggyInterTests(unittest.TestCase):
         with self.assertRaises(PluggyError):
             self.inter.import_preview("wrong-token")
         result = self.inter.import_preview(preview["preview_token"])
-        self.assertEqual((result["imported"],result["replaced"],result["balance_updated"]), (6,1,True))
+        self.assertEqual((result["imported"],result["replaced"],result["balance_updated"]), (4,0,True))
         self.assertTrue((self.store.path.parent / result["backup"]).exists())
         self.assertEqual(self.store.account_balance_snapshots("2026-10")[0]["amount_cents"], 1836)
         with self.store._connect() as connection:
             rows = [dict(row) for row in connection.execute(
                 "SELECT description, category, excluded, invoice_month FROM transactions ORDER BY id")]
-        self.assertEqual(len(rows), 6)
+        self.assertEqual(len(rows), 5)
+        self.assertIn({"description": "Fatura antiga", "category": "Importado", "excluded": 0, "invoice_month": "2026-09"}, rows)
         self.assertIn({"description": "Pagamento fatura cartão", "category": "Pagamento de fatura",
                        "excluded": 1, "invoice_month": None}, rows)
         repeat = self.inter.preview(self.fake_http)
-        self.assertEqual(repeat["replaced_count"], 6)
+        self.assertEqual(repeat["replaced_count"], 4)
         self.inter.import_preview(repeat["preview_token"])
         self.assertEqual(len(self.store.list_month("2026-10")), 4)
 
@@ -125,7 +133,7 @@ class PluggyInterTests(unittest.TestCase):
             return response
 
         second = self.inter.preview(updated_http)
-        self.assertEqual(second["new_count"], 7)
+        self.assertEqual(second["new_count"], 5)
         self.assertEqual(second["new_items"][-1]["description"], "Nova compra")
 
     def test_duplicates_are_replaced_but_categories_and_pj_survive(self):
@@ -154,7 +162,7 @@ class PluggyInterTests(unittest.TestCase):
             return result
         second = self.inter.preview(changed)
         self.inter.import_preview(second["preview_token"])
-        self.assertEqual(self.store.list_month("2026-09")[0]["description"], "Fatura antiga")
+        self.assertEqual(self.store.list_month("2026-09"), [])
         mercado = next(r for r in self.store.list_month("2026-10") if r["description"]=="Mercado")
         self.assertEqual(mercado["amount_cents"],3100)
 
@@ -182,6 +190,89 @@ class PluggyInterTests(unittest.TestCase):
             "Aplicação - Cdb Exemplo Banco", "expense"),("Movimento de investimento",True))
         self.assertEqual(_bank_classification({},"Cashback - Exemplo","income"),("Cashback",True))
         self.assertEqual(_bank_classification({},"Compra no débito - Cdb Restaurante","expense"),("Importado",False))
+
+    def test_online_settlement_is_not_a_refund_but_merchant_refunds_survive(self):
+        self.assertTrue(card_payment({}, "PAGAMENTO ON LINE"))
+        self.assertFalse(card_payment({}, "PAGAMENTO TRANSPORTE"))
+        def extra_http(method, path, payload=None, api_key=None):
+            result = self.fake_http(method, path, payload, api_key)
+            if path.startswith('/v2/transactions?') and CARD_ID in path:
+                result['results'].extend([
+                    transaction('ccccccc1-cccc-cccc-cccc-cccccccccccc', '2026-10-11',
+                                'PAGAMENTO ON LINE', -900, 'CREDIT',
+                                creditCardMetadata={'billForecastDate': '2026-10'}),
+                    transaction('ccccccc2-cccc-cccc-cccc-cccccccccccc', '2026-10-11',
+                                'Loja devolução', -5, 'CREDIT',
+                                creditCardMetadata={'billForecastDate': '2026-10'}),
+                ])
+            return result
+        preview = self.inter.preview(extra_http)
+        self.assertEqual(preview['skipped']['card_payment'], 2)
+        self.inter.import_preview(preview['preview_token'])
+        invoice = self.store.invoice_history()[0]
+        self.assertEqual(invoice['expense_cents'] - invoice['credit_cents'], 11900)
+
+    def test_live_month_remains_fixed_when_month_changes(self):
+        preview = self.inter.preview(self.fake_http)
+        self.inter.import_preview(preview['preview_token'])
+        self.clock.today.return_value = date(2026, 11, 13)
+        self.assertEqual(live_start(self.store), '2026-10-01')
+        again = self.inter.preview(self.fake_http)
+        self.assertEqual(again['live_starts_on'], '2026-10-01')
+        self.assertTrue(all(p['starts_on'] >= '2026-10-01' for p in again['periods']))
+
+    def test_recovery_keeps_original_invoice_live_purchases_and_other_sources(self):
+        original = {'kind': 'expense', 'description': 'Restaurante histórico',
+                    'category': 'Alimentação', 'amount_cents': 5000,
+                    'occurred_on': '2026-09-10', 'excluded': False,
+                    'source': 'Inter · cartão principal', 'invoice_month': '2026-09',
+                    'import_key': hashlib.sha256(b'original-pdf').hexdigest(), 'scope': 'personal'}
+        shifted = {**original, 'import_key': hashlib.sha256(b'provider-duplicate').hexdigest(),
+                   'invoice_month': '2026-10', 'category': 'Importado'}
+        self.store.add_imported([shifted])
+        pj = self.store.add({'kind': 'expense', 'description': 'Empresa', 'category': 'Outros',
+                             'amount': '15,00', 'occurred_on': '2026-09-10', 'scope': 'business'})
+        preview = self.inter.preview(self.fake_http)
+        self.inter.import_preview(preview['preview_token'])
+        result = restore_inter_history(self.store, [original], '2026-10-01')
+        self.assertTrue((self.store.path.parent / result['backup']).exists())
+        self.assertEqual(self.store.invoice_history()[-1]['expense_cents'] - self.store.invoice_history()[-1]['credit_cents'], 5000)
+
+        self.assertEqual(self.store.get(pj['id'])['scope'], 'business')
+        before = self.store.purchase_categories('personal')
+        again = self.inter.preview(self.fake_http)
+        self.inter.import_preview(again['preview_token'])
+        self.assertEqual(self.store.purchase_categories('personal'), before)
+        self.assertEqual(self.store.invoice_history()[-1]['expense_cents'] - self.store.invoice_history()[-1]['credit_cents'], 5000)
+
+    def test_open_bill_includes_month_end_purchase_once_after_posting(self):
+        original = {'kind': 'expense', 'description': 'Compra antiga', 'category': 'Mercado',
+                    'amount_cents': 5000, 'occurred_on': '2026-09-29', 'excluded': False,
+                    'source': 'Inter · cartão principal', 'invoice_month': '2026-09',
+                    'import_key': hashlib.sha256(b'closed-pdf').hexdigest(), 'scope': 'personal'}
+        restore_inter_history(self.store, [original], '2026-10-01')
+        def month_end_http(method, path, payload=None, api_key=None):
+            result = self.fake_http(method, path, payload, api_key)
+            if path.startswith('/v2/transactions?') and CARD_ID in path:
+                result['results'].append(transaction(
+                    'ccccccc3-cccc-cccc-cccc-cccccccccccc', '2026-09-30', 'Compra nova', 10,
+                    'DEBIT', status='PENDING', creditCardMetadata={'billForecastDate': '2026-10'}))
+            return result
+        preview = self.inter.preview(month_end_http)
+        self.assertEqual(preview['card_live_starts_on'], '2026-09-30')
+        self.inter.import_preview(preview['preview_token'])
+        def posted_http(method, path, payload=None, api_key=None):
+            result = month_end_http(method, path, payload, api_key)
+            if path.startswith('/v2/transactions?') and CARD_ID in path:
+                result['results'][-1]['status'] = 'POSTED'
+            return result
+        again = self.inter.preview(posted_http)
+        self.inter.import_preview(again['preview_token'])
+        with self.store._connect() as connection:
+            rows = connection.execute("SELECT * FROM transactions WHERE description='Compra nova'").fetchall()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['pending'], 0)
+        self.assertEqual(self.store.invoice_history()[-1]['expense_cents'], 5000)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ import os
 import sqlite3
 from collections import defaultdict
 from contextlib import closing
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 
 from finance import merchant_key, _description_words
 
@@ -63,11 +63,81 @@ def _matches(item, old):
     return similar + [r for r in keyed if r not in similar]
 
 
+def restore_inter_history(store, historical_items, starts_on, statement_periods=()):
+    """Explicit recovery: restore reviewed local history, retaining current live rows.
+
+    Call only with the original CSV/PDF records from a trusted local backup.
+    This is not an automatic migration or a provider refresh.
+    """
+    from pluggy_inter import ACCOUNT_SOURCE, CARD_SOURCE, card_payment
+    sources = (ACCOUNT_SOURCE, CARD_SOURCE)
+    first_day = date.fromisoformat(starts_on)
+    previous_month = (first_day - timedelta(days=1)).isoformat()[:7]
+    last_invoice_dates = [r['occurred_on'] for r in historical_items
+                          if r['source'] == CARD_SOURCE and r['invoice_month'] == previous_month]
+    card_starts_on = min(starts_on, (date.fromisoformat(max(last_invoice_dates)) + timedelta(days=1)).isoformat()) if last_invoice_dates else starts_on
+    keys = set()
+    for item in historical_items:
+        if item["source"] not in sources or item["scope"] != "personal" or \
+                item["occurred_on"] >= starts_on or not item["import_key"] or \
+                (item["invoice_month"] and item["invoice_month"] >= starts_on[:7]) or \
+                item["import_key"] in keys:
+            raise ValueError("A recuperação deve conter somente o histórico original anterior ao início da Pluggy.")
+        keys.add(item["import_key"])
+    saved = backup(store)
+    with store._connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        old = [dict(r) for r in connection.execute(
+            "SELECT * FROM transactions WHERE scope='personal' AND source IN (?,?)", sources)]
+        removed = [r for r in old if r["occurred_on"] < (card_starts_on if r['source'] == CARD_SOURCE else starts_on) or
+                   (r["invoice_month"] and r["invoice_month"] < starts_on[:7]) or
+                   (r["source"] == CARD_SOURCE and card_payment({}, r["description"]))]
+        connection.executemany("DELETE FROM transactions WHERE id=?", [(r["id"],) for r in removed])
+        memory = {(r["scope"], r["merchant_key"]): r["category"]
+                  for r in connection.execute("SELECT * FROM category_memory")}
+        restored = []
+        for original in historical_items:
+            item = dict(original)
+            if item["kind"] == "expense" and not item["excluded"]:
+                item["category"] = memory.get((item["scope"], merchant_key(item["description"])), item["category"])
+            item["pending"] = 0
+            connection.execute("""INSERT INTO transactions
+                (kind,description,category,amount_cents,occurred_on,excluded,source,import_key,invoice_month,scope,pending)
+                VALUES (:kind,:description,:category,:amount_cents,:occurred_on,:excluded,:source,:import_key,:invoice_month,:scope,:pending)""", item)
+            item["id"] = connection.execute("SELECT id FROM transactions WHERE import_key=?", (item["import_key"],)).fetchone()[0]
+            restored.append(item)
+        for row in removed:
+            matches = _matches(row, [r for r in restored if r["source"] == row["source"]])
+            connection.execute("UPDATE investment_entries SET matched_transaction_id=? WHERE matched_transaction_id=?",
+                               (matches[0]["id"] if len(matches) == 1 else None, row["id"]))
+        connection.execute("INSERT OR REPLACE INTO pluggy_inter_policy VALUES (1,?,?)", (starts_on, card_starts_on))
+        for source in sources:
+            connection.execute("DELETE FROM authoritative_periods WHERE source=? AND scope='personal'", (source,))
+            connection.execute("INSERT INTO authoritative_periods(source,scope,starts_on,ends_on) VALUES (?,'personal',?,?)",
+                               (source, card_starts_on if source == CARD_SOURCE else starts_on, date.today().isoformat()))
+        connection.execute("DELETE FROM statement_coverage WHERE source=? AND scope='personal'", (ACCOUNT_SOURCE,))
+        for period in statement_periods:
+            if period['starts_on'] < starts_on:
+                connection.execute("INSERT OR IGNORE INTO statement_coverage VALUES (?,'personal',?,?)",
+                                   (ACCOUNT_SOURCE, period['starts_on'], min(period['ends_on'], (first_day-timedelta(days=1)).isoformat())))
+        connection.execute("INSERT OR IGNORE INTO statement_coverage VALUES (?,'personal',?,?)",
+                           (ACCOUNT_SOURCE, starts_on, date.today().isoformat()))
+        for item in historical_items:
+            if item['invoice_month']:
+                connection.execute("INSERT OR IGNORE INTO invoice_coverage VALUES (?,?,?)",
+                                   (item['source'], item['scope'], item['invoice_month']))
+    store.reconcile_internal_transfers()
+    return {"restored": len(restored), "removed": len(removed), "backup": saved,
+            "starts_on": starts_on, "card_starts_on": card_starts_on}
+
+
 def apply_inter(store, pending):
     saved = backup(store)
     preserved = 0
     with store._connect() as connection:
         connection.execute("BEGIN IMMEDIATE")
+        connection.execute("INSERT OR IGNORE INTO pluggy_inter_policy VALUES (1,?,?)",
+                           (pending["starts_on"], pending['card_starts_on']))
         old = _old_inter(connection, pending["periods"])
         memory = {(r["scope"], r["merchant_key"]): r["category"] for r in connection.execute("SELECT * FROM category_memory")}
         old_by_source = defaultdict(list)
@@ -101,6 +171,8 @@ def apply_inter(store, pending):
             connection.execute("UPDATE investment_entries SET matched_transaction_id=? WHERE matched_transaction_id=?",
                                (remapped.get(row["id"]), row["id"]))
         for period in pending["periods"]:
+            connection.execute("DELETE FROM authoritative_periods WHERE source=? AND scope=?",
+                               (period["source"], period["scope"]))
             connection.execute("INSERT OR REPLACE INTO authoritative_periods(source,scope,starts_on,ends_on) VALUES (?,?,?,?)",
                                (period["source"], period["scope"], period["starts_on"], period["ends_on"]))
             if "conta corrente" in period["source"]:

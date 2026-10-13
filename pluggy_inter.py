@@ -21,6 +21,28 @@ CARD_SOURCE = "Inter · cartão principal"
 MAX_TRANSACTIONS = 5000
 
 
+def live_start(store: FinanceStore) -> str:
+    """Keep the initial live month fixed across later synchronizations."""
+    with store._connect() as connection:
+        policy = connection.execute("SELECT starts_on FROM pluggy_inter_policy WHERE singleton=1").fetchone()
+    return policy[0] if policy else date.today().replace(day=1).isoformat()
+
+
+def card_live_start(store: FinanceStore, starts_on: str) -> str:
+    with store._connect() as connection:
+        policy = connection.execute("SELECT card_starts_on FROM pluggy_inter_policy WHERE singleton=1").fetchone()
+    return policy[0] if policy else starts_on
+
+
+def card_payment(row: dict, description: str) -> bool:
+    """Bank settlements are not merchant refunds or additional purchases."""
+    key = merchant_key(description)
+    return row.get("operationType") == "PAGAMENTO_FATURA" or key in {
+        "pagamento on line", "pagamento online", "pagamento recebido",
+        "pagamento de fatura", "pagamento da fatura", "pagamento fatura",
+    }
+
+
 def _cents(value: object) -> int:
     if isinstance(value, bool) or value is None:
         raise PluggyError("A Pluggy devolveu um valor de transação inválido.")
@@ -142,6 +164,8 @@ class PluggyInter:
                 raise PluggyError("A Pluggy devolveu uma conta inválida ou fora de reais.")
 
         prepared = []
+        starts_on = live_start(self.store)
+        card_starts_on = card_live_start(self.store, starts_on)
         periods = []
         skipped = Counter()
         account_summaries = []
@@ -149,6 +173,7 @@ class PluggyInter:
         seen_keys = set()
         for account in relevant:
             is_card = account["type"] == "CREDIT"
+            source_start = card_starts_on if is_card else starts_on
             source = CARD_SOURCE if is_card else ACCOUNT_SOURCE
             account_id = account["id"]
             bills = _pages("/bills?" + urlencode({"accountId": account_id}), api_key, http_json) if is_card else []
@@ -161,8 +186,11 @@ class PluggyInter:
             updated_on = _iso_date(account.get("updatedAt") or datetime.now(timezone.utc).isoformat(), "a conta")
             if dates:
                 from pluggy_sync import covered_start
-                periods.append({"source": source, "scope": "personal", "starts_on": covered_start(self.store, source, "personal", min(dates)),
-                                "ends_on": min(date.today().isoformat(), max(updated_on, max(dates)))})
+                period_start = max(source_start, covered_start(self.store, source, "personal", min(dates)))
+                period_end = min(date.today().isoformat(), max(updated_on, max(dates)))
+                if period_start <= period_end:
+                    periods.append({"source": source, "scope": "personal", "starts_on": period_start,
+                                    "ends_on": period_end})
             account_summaries.append({"type": "card" if is_card else "account",
                                       "name": str(account.get("name") or ("Cartão" if is_card else "Conta"))[:80],
                                       "source": source, "received": len(transactions)})
@@ -180,6 +208,9 @@ class PluggyInter:
                 if not description:
                     raise PluggyError("Uma transação veio sem descrição.")
                 occurred_on = _iso_date(row.get("date"), "uma transação")
+                if occurred_on < source_start:
+                    skipped["historical"] += 1
+                    continue
                 if occurred_on > date.today().isoformat():
                     skipped["future"] += 1
                     continue
@@ -193,7 +224,7 @@ class PluggyInter:
                 if is_card and ((kind == "expense" and amount < 0) or
                                 (kind == "income" and amount > 0)):
                     raise PluggyError("Uma transação do cartão veio com sinal inconsistente.")
-                if is_card and row.get("operationType") == "PAGAMENTO_FATURA":
+                if is_card and card_payment(row, description):
                     skipped["card_payment"] += 1
                     continue
                 if is_card:
@@ -205,6 +236,9 @@ class PluggyInter:
                         invoice_month = forecast
                     if not invoice_month:
                         raise PluggyError("Um lançamento do cartão veio sem mês de fatura. Nada será substituído até conferir esse período.")
+                    if invoice_month < starts_on[:7]:
+                        skipped["historical"] += 1
+                        continue
                     category, excluded = ("Estorno", False) if kind == "income" else ("Importado", False)
                 else:
                     invoice_month = None
@@ -225,18 +259,22 @@ class PluggyInter:
         with self._lock:
             self._pending = {"token": token, "expires": time.monotonic() + 600,
                              "items": prepared, "balance": bank_balance, "periods": periods}
+            self._pending["starts_on"] = starts_on
+            self._pending["card_starts_on"] = card_starts_on
         from pluggy_sync import replacement_counts
         replacements = replacement_counts(self.store, periods)
         return {"preview_token": token, "accounts": account_summaries,
                 "new_count": len(prepared), "skipped": dict(skipped),
                 "periods": periods, "replaced_count": replacements,
+                "live_starts_on": starts_on,
+                "card_live_starts_on": card_starts_on,
                 "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 "bank_balance": bank_balance,
                 "new_items": [{key: row[key] for key in ("kind", "description", "amount_cents",
                                                       "occurred_on", "source", "invoice_month",
                                                       "category", "excluded", "pending")}
                               for row in prepared],
-                "note": "A Pluggy substitui os lançamentos do Inter pessoal nas datas acima. Categorias confirmadas são preservadas quando o lançamento é reconhecido. Compras de fatura aberta são provisórias; a conta PJ fica separada."}
+                "note": f"Conta: operações desde {starts_on}. Cartão: compras desde {card_starts_on}, após o histórico das faturas importadas. Pagamentos de cartão não são compras. Categorias reconhecidas são preservadas; compras pendentes são provisórias."}
 
     def import_preview(self, token: object) -> dict:
         with self._lock:

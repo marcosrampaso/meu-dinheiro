@@ -194,6 +194,9 @@ class FinanceStore:
                 source TEXT NOT NULL, scope TEXT NOT NULL, starts_on TEXT NOT NULL, ends_on TEXT NOT NULL,
                 checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY(source,scope,starts_on,ends_on))""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS pluggy_inter_policy (
+                singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+                starts_on TEXT NOT NULL, card_starts_on TEXT NOT NULL)""")
             invoice_coverage_exists = connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'invoice_coverage'"
             ).fetchone() is not None

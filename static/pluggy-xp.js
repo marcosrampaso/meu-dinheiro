@@ -97,7 +97,7 @@ function renderInterPreview(data) {
   const skipped = Object.entries(data.skipped);
   if (skipped.length) {
     const note = document.createElement("p");
-    const labels = { pending: "pendentes", zero: "valor zero", card_payment: "pagamentos de fatura",
+    const labels = { historical: "anteriores ao início da conexão", pending: "pendentes", zero: "valor zero", card_payment: "pagamentos de fatura",
       no_bill: "sem mês da fatura", existing_statement: "cobertos por extratos/faturas existentes",
       manual_match: "já lançados manualmente", already_imported: "já importados da Pluggy" };
     note.textContent = "Ignorados: " + skipped.map(([reason, count]) => `${count} ${labels[reason] || reason}`).join(" · ");
@@ -187,7 +187,7 @@ interPreviewButton.addEventListener("click", async () => {
     renderInterPreview(data);
     interPreviewToken = data.preview_token;
     interImportButton.disabled = !(data.new_count || data.bank_balance);
-    interStatus("Confira as datas: a sincronização substituirá o Inter pessoal nesse período, usando a Pluggy como fonte.");
+    interStatus("Confira as datas e as compras novas. O histórico de faturas e extratos anterior ao início da conexão será preservado.");
   } catch (error) { interStatus(error.message, true); }
   finally { await refreshPluggyStatus(); }
 });
