@@ -13,6 +13,17 @@ function renderWeekly(data) {
     (period.previous_total_cents ?
       `${period.current_total_cents > period.previous_total_cents ? "Alta" : period.current_total_cents < period.previous_total_cents ? "Queda" : "Mesmo valor"} de ${money.format(Math.abs(period.current_total_cents - period.previous_total_cents) / 100)}.` :
       "Sem gastos registrados para comparação.");
+  const highlights = document.querySelector("#weekly-highlights");
+  highlights.replaceChildren();
+  const facts = [];
+  if (period.highlights.biggest_increase) facts.push(`Maior alta: ${period.highlights.biggest_increase.category} · ${money.format(period.highlights.biggest_increase.delta_cents / 100)}`);
+  if (period.highlights.biggest_decrease) facts.push(`Maior queda: ${period.highlights.biggest_decrease.category} · ${money.format(Math.abs(period.highlights.biggest_decrease.delta_cents) / 100)}`);
+  if (period.highlights.uncategorized_cents) facts.push(`Sem categoria: ${money.format(period.highlights.uncategorized_cents / 100)}`);
+  for (const fact of facts) {
+    const item = document.createElement("span");
+    item.textContent = fact;
+    highlights.append(item);
+  }
   const categories = document.querySelector("#weekly-categories");
   categories.replaceChildren();
   for (const item of period.categories.filter(row => row.current_cents > 0).slice(0, 5)) {

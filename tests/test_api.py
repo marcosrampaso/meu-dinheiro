@@ -123,6 +123,24 @@ class ApiTests(unittest.TestCase):
         generate.assert_called_once()
         self.assertIsNotNone(self.call_api("/api/v1/weekly-summary")[1]["report"])
 
+    def test_planning_and_performance_routes(self):
+        status, health = self.call_api("/api/v1/data-health?month=2026-10")
+        self.assertEqual(status, 200)
+        self.assertTrue(health["has_gaps"])
+        status, budget = self.call_api("/api/v1/budgets", "POST", {
+            "scope": "personal", "category": "Mercado", "limit": "200,00"})
+        self.assertEqual((status, budget["limit_cents"]), (201, 20000))
+        self.assertEqual(self.call_api("/api/v1/budgets?month=2026-10")[1]["budgets"][0]["category"], "Mercado")
+        status, planned = self.call_api("/api/v1/calendar", "POST", {
+            "scope": "personal", "kind": "expense", "description": "Conta exemplo",
+            "amount": "30,00", "due_day": 20, "starts_month": "2026-10"})
+        self.assertEqual(status, 201)
+        self.assertEqual(self.call_api("/api/v1/calendar")[0], 200)
+        self.assertEqual(self.call_api(f"/api/v1/calendar/{planned['id']}", "DELETE")[0], 200)
+        self.assertEqual(self.call_api("/api/v1/budgets?scope=personal&category=Mercado", "DELETE")[0], 200)
+        status, performance = self.call_api("/api/v1/investments/performance")
+        self.assertEqual((status, performance["status"]), (200, "needs_snapshots"))
+
     def test_xp_import_preview_and_commit_keep_cash_flow_separate(self):
         payload = {"filename": "xp.csv", "content": XP_CSV}
         status, preview = self.call_api("/api/v1/investments/imports/preview", "POST", payload)

@@ -92,7 +92,7 @@ function setArea(area) {
   financesTab.tabIndex = showInvestments || showNews ? -1 : 0;
   investmentsTab.tabIndex = showInvestments ? 0 : -1;
   newsTab.tabIndex = showNews ? 0 : -1;
-  if (showInvestments) { refreshInvestments(); refreshCDI(); }
+  if (showInvestments) { refreshInvestments(); refreshCDI(); document.dispatchEvent(new Event("investments-view-resume")); }
   if (showNews) document.dispatchEvent(new Event("news-view-resume"));
 }
 

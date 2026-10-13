@@ -33,6 +33,8 @@ O banco padrão fica em `data/financas.db` e é criado na primeira execução. *
 - Gráficos de entradas e saídas, faturas, saldos e gastos por categoria em barras horizontais mensais, gerados dinamicamente a partir da API. Barras e pontos mostram os valores ao passar o mouse ou usar o teclado; a legenda do gráfico mensal destaca uma categoria em todos os meses. Meses sem extrato não são apresentados como saldo zero.
 - Compras da conta/débito e do cartão de crédito por categoria, com filtros para gerar sugestões opcionais por IA. As sugestões precisam de confirmação antes de serem salvas. Categorias confirmadas são lembradas localmente para compras com a mesma descrição.
 - Registro manual de compras no cartão, vinculado ao mês da fatura.
+- Conferência de cobertura dos extratos e faturas por mês, orçamento mensal por categoria e calendário de vencimentos recorrentes.
+- Comparação estimada da carteira XP com o CDI quando houver pelo menos duas posições datadas.
 
 As **saídas das contas** incluem pagamentos de fatura. As compras feitas no cartão aparecem na data da compra e no histórico da fatura, sem serem somadas novamente ao fluxo de caixa. Transferências internas e cashback identificados ficam fora da receita consolidada. Confira as marcações após importar novos formatos de extrato.
 
@@ -50,11 +52,19 @@ Na aba **Investimentos**, envie o CSV da conta XP e confira a prévia antes de c
 
 Na mesma aba, **Importar posição detalhada** aceita o arquivo XLSX exportado pela XP. O app valida a soma dos ativos, proventos a receber e saldo contra o patrimônio informado, mostra uma prévia e salva uma fotografia por data. Se você importar outro arquivo da mesma data, essa fotografia será atualizada. A composição usa o valor bruto dos ativos; a diferença em relação ao custo informado pela XP é apenas uma comparação dos ativos da fotografia, não a rentabilidade total. Os aportes e o patrimônio são exibidos separadamente. Para acompanhar a evolução real da carteira, importe posições de outras datas.
 
-O gráfico **Rendimento por ativo** usa `valor bruto − custo` da posição selecionada e mostra essa variação em reais e percentual. O total do gráfico soma apenas os ativos da fotografia; proventos a receber, impostos e taxas não entram. Ele não calcula a rentabilidade histórica da carteira nem uma série mensal de rendimento. Para isso, serão necessários dados de posições anteriores e de proventos.
+O gráfico **Rendimento por ativo** usa `valor bruto − custo` da posição selecionada e mostra essa variação em reais e percentual. O total do gráfico soma apenas os ativos da fotografia; proventos a receber, impostos e taxas não entram. Ele não calcula a rentabilidade histórica da carteira.
+
+O quadro **Seu rendimento contra o CDI** aparece quando houver duas ou mais fotografias da XP em datas distintas. Entre posições, ele estima o retorno da conta pelo [método Dietz modificado](https://rpc.cfainstitute.org/sites/default/files/-/media/documents/article/rf-brief/investment-model-validation.pdf): subtrai aportes e saques externos e pondera cada fluxo pelos dias restantes. PIX/TED recebidos ou enviados são reconhecidos como fluxos externos; transferências ambíguas exigem classificação na tela antes do cálculo. O comparador aplica as taxas diárias do CDI ao mesmo capital inicial e aos mesmos fluxos nas respectivas datas. Os retornos dos intervalos são encadeados no gráfico. O resultado é uma **estimativa da conta XP**, sujeita à qualidade do extrato e das fotografias, não a rentabilidade oficial da corretora. Com uma única posição, o quadro explica que falta outra fotografia. O cache do CDI é ampliado para posições históricas quando necessário.
 
 O gráfico separado **CDI acumulado** consulta a série diária 12 do [Banco Central](https://www3.bcb.gov.br/sgspub/consultarvalores/consultarValoresSeries.do?method=consultarSeries&series=12), soma os dias úteis por juros compostos e permite escolher 1, 3, 6 ou 12 meses. A consulta começa ao iniciar o servidor e se repete a cada três horas; os valores públicos ficam em cache no SQLite. O gráfico mostra a data do último dado publicado e sinaliza quando a atualização falha ou está atrasada. É uma referência percentual bruta, sem impostos ou taxas; não representa o rendimento da sua carteira XP.
 
-Na aba **Finanças**, o **Resumo semanal** usa a última semana completa (segunda a domingo) e a anterior, na visão Pessoal/PJ/Tudo selecionada. Inclui compras no cartão e débito pela data da compra; exclui transferências internas, investimentos e pagamentos de fatura já marcados como excluídos. Os totais, categorias e diferenças são calculados localmente. Clique em **Gerar insights com Luna** para pedir uma análise qualitativa; nenhuma chamada à IA ocorre automaticamente. São enviados somente totais em centavos por categoria para as duas semanas e as datas do período. Nomes, descrições, lançamentos individuais, saldos, receitas e arquivos não são enviados. O relatório fica em cache no SQLite enquanto os agregados forem os mesmos. Se faltarem extratos, os totais podem estar incompletos.
+Na aba **Finanças**, o **Resumo semanal** usa a última semana completa (segunda a domingo) e a anterior, na visão Pessoal/PJ/Tudo selecionada. Inclui compras no cartão e débito pela data da compra; exclui transferências internas, investimentos e pagamentos de fatura já marcados como excluídos. Totais, maior alta e queda por categoria e o valor sem categoria são calculados localmente. Clique em **Gerar insights com Luna** para pedir uma análise qualitativa; nenhuma chamada à IA ocorre automaticamente. São enviados somente totais em centavos por categoria para as duas semanas e as datas do período. Nomes, descrições, lançamentos individuais, saldos, receitas e arquivos não são enviados. O relatório fica em cache no SQLite enquanto os agregados forem os mesmos. Se faltarem extratos, os totais podem estar incompletos.
+
+O quadro **O que falta neste mês?** compara os períodos cobertos pelos extratos de conta conhecidos com o mês selecionado (ou com o dia atual no mês em andamento). Para cartões conhecidos, indica fatura ausente, apenas lançamentos manuais ou itens importados. Uma fatura com itens importados ainda precisa de conferência: o aplicativo não presume que ela está fechada. Um banco ainda não importado não pode ser detectado automaticamente.
+
+Em **Orçamento por categoria**, defina limites mensais recorrentes separados para Pessoal e PJ. O progresso usa as compras na data da operação, incluindo débito e cartão; pagamentos de fatura e transferências não entram. Limites podem ser substituídos ou removidos, sem editar lançamentos.
+
+Em **Vencimentos e saldo previsto**, cadastre entradas e saídas mensais com valor e dia do mês. Para cartões já presentes no histórico, configure o dia de vencimento e se a fatura é paga no próprio mês ou no seguinte; o valor previsto acompanha os lançamentos registrados naquela fatura e é marcado como parcial quando há apenas registros manuais ou mistura de importados e manuais. O calendário mostra 42 dias à frente e calcula um saldo simples a partir do último saldo importado das contas da visão escolhida. Não confirma pagamentos, nem projeta gastos não cadastrados. Evite cadastrar a mesma fatura como recorrência manual e como vencimento de cartão, pois isso duplicaria a previsão.
 
 O quadro **Rendimento estimado atualizado** consulta a [CVM](https://dados.cvm.gov.br/dataset/fi-doc-inf_diario) para as cotas oficiais dos fundos e a [brapi.dev](https://brapi.dev/) para ações e FIIs. Os CNPJs dos fundos ficam no arquivo local `data/market-assets.json`, no formato `{"fund_cnpjs":{"Nome exato do fundo":"00.000.000/0000-00"}}`. Esse arquivo é ignorado pelo Git; o app já reconhece automaticamente nomes de ações e FIIs no formato de ticker. Crie um token na brapi e cole no campo da aba Investimentos. O token é salvo em `data/brapi-token`, com permissão 0600, e nunca é devolvido pela API. O plano gratuito da brapi pode ter cotação atrasada e exige token para vários tickers. O app consulta cada ticker separadamente. Se trocar ou revogar o token, use o mesmo campo ou **Remover token**.
 
@@ -87,6 +97,12 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | GET | `/summary?month=AAAA-MM&scope=personal` | Resumo mensal |
 | GET | `/purchase-categories?scope=personal&month=AAAA-MM` | Gastos por categoria no mês; sem `month`, todo o histórico |
 | GET | `/analytics?month=AAAA-MM&scope=all&months=6` | Séries dos gráficos, incluindo `category_spending` por mês; `months` aceita de 1 a 24 |
+| GET | `/data-health?month=AAAA-MM&scope=personal` | Cobertura dos extratos e estado das faturas conhecidas |
+| GET/POST/DELETE | `/budgets` | Limites por categoria; POST recebe `scope`, `category`, `limit`; DELETE usa `scope` e `category` na query |
+| GET/POST | `/calendar` | Vencimentos, recorrências e projeção de 42 dias; POST cria uma recorrência |
+| DELETE | `/calendar/{id}` | Remove uma recorrência |
+| POST | `/calendar/cards` | Configura vencimento de cartão (`source`, `scope`, `due_day`, `month_offset`) |
+| DELETE | `/calendar/cards/{id}` | Remove a configuração de vencimento do cartão |
 | GET | `/transactions?month=AAAA-MM&scope=business` | Lista de lançamentos |
 | GET | `/transactions/{id}` | Um lançamento |
 | POST | `/transactions` | Criar lançamento |
@@ -102,6 +118,8 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | POST | `/investments/imports` | Salvar o histórico da XP sem duplicar e marcar os pares confirmados |
 | GET | `/investments/overview?month=AAAA-MM&months=6` | Aportes mensais e acumulados, conciliações e movimentações para a aba Investimentos |
 | GET | `/investments/cdi?months=6` | CDI diário acumulado (1, 3, 6 ou 12 meses), com data e fonte do Banco Central |
+| GET | `/investments/performance` | Estimativa Dietz da carteira XP comparada ao CDI sob os mesmos fluxos |
+| PUT | `/investments/flows/{import_key}` | Classifica uma transferência XP como `external` ou `internal` após revisão |
 | GET/POST | `/weekly-summary` | Totais semanais agregados e geração sob demanda de insights com Luna; `scope` aceita `personal`, `business` ou `all` |
 | GET | `/investments/market-returns` | Estimativas por ativo, datas e fontes das cotações, estado do token e da consulta |
 | POST | `/investments/brapi-token` | Salvar token local da brapi (`{"token":"..."}`) |

@@ -44,9 +44,17 @@ def weekly_context(store: FinanceStore, scope: str = "personal", today: date | N
     ordered.sort(key=lambda item: (-item["current_cents"], item["category"]))
     current_total = sum(row["current_cents"] for row in ordered)
     previous_total = sum(row["previous_cents"] for row in ordered)
+    changes = sorted(({"category": row["category"],
+                       "delta_cents": row["current_cents"] - row["previous_cents"]}
+                      for row in ordered), key=lambda item: item["delta_cents"])
+    uncategorized = next((row["current_cents"] for row in ordered
+                          if row["category"] == "Não categorizado"), 0)
     context = {"scope": scope, "starts_on": start.isoformat(), "ends_on": end.isoformat(),
                "previous_starts_on": previous.isoformat(), "current_total_cents": current_total,
-               "previous_total_cents": previous_total, "categories": ordered}
+               "previous_total_cents": previous_total, "categories": ordered,
+               "highlights": {"biggest_increase": changes[-1] if previous_total and changes and changes[-1]["delta_cents"] > 0 else None,
+                              "biggest_decrease": changes[0] if previous_total and changes and changes[0]["delta_cents"] < 0 else None,
+                              "uncategorized_cents": uncategorized}}
     context["signature"] = hashlib.sha256(json.dumps(context, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     return context
 

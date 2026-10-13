@@ -23,6 +23,10 @@ from investment_news import ResearchError, research_assets
 from market_quotes import MarketQuotes
 from cdi import CDIBenchmark
 from weekly import WeeklyError, weekly_context, saved_weekly_report, save_weekly_report, generate_weekly_report
+from planning import (budget_overview, save_budget, delete_budget, data_health,
+                      calendar_overview, save_commitment, delete_commitment,
+                      save_card_due_rule, delete_card_due_rule)
+from performance import performance_overview, classify_flow
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -36,6 +40,8 @@ STATIC_FILES = {
     "/investments.js": (BASE_DIR / "static" / "investments.js", "text/javascript; charset=utf-8"),
     "/news.js": (BASE_DIR / "static" / "news.js", "text/javascript; charset=utf-8"),
     "/weekly.js": (BASE_DIR / "static" / "weekly.js", "text/javascript; charset=utf-8"),
+    "/planning.js": (BASE_DIR / "static" / "planning.js", "text/javascript; charset=utf-8"),
+    "/performance.js": (BASE_DIR / "static" / "performance.js", "text/javascript; charset=utf-8"),
     "/charts.js": (BASE_DIR / "static" / "charts.js", "text/javascript; charset=utf-8"),
     "/categories.js": (BASE_DIR / "static" / "categories.js", "text/javascript; charset=utf-8"),
     "/manual-card.js": (BASE_DIR / "static" / "manual-card.js", "text/javascript; charset=utf-8"),
@@ -183,6 +189,15 @@ class FinanceHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.OK, self.server.store.analytics(
                 self._month(query), self._scope(query), int(raw_months)))
             return
+        if path == API_PREFIX + "/data-health":
+            self._json(HTTPStatus.OK, data_health(self.server.store, self._month(query), self._scope(query)))
+            return
+        if path == API_PREFIX + "/budgets":
+            self._json(HTTPStatus.OK, budget_overview(self.server.store, self._month(query), self._scope(query)))
+            return
+        if path == API_PREFIX + "/calendar":
+            self._json(HTTPStatus.OK, calendar_overview(self.server.store, self._scope(query)))
+            return
         if path == API_PREFIX + "/investments/overview":
             raw_months = query.get("months", ["6"])[0]
             if not raw_months.isdecimal():
@@ -198,6 +213,9 @@ class FinanceHandler(BaseHTTPRequestHandler):
             if not raw_months.isdecimal():
                 raise ValidationError("Escolha 1, 3, 6 ou 12 meses para o CDI.")
             self._json(HTTPStatus.OK, self.server.cdi.overview(int(raw_months)))
+            return
+        if path == API_PREFIX + "/investments/performance":
+            self._json(HTTPStatus.OK, performance_overview(self.server.store))
             return
         if path == API_PREFIX + "/weekly-summary":
             context = weekly_context(self.server.store, self._scope(query))
@@ -316,6 +334,15 @@ class FinanceHandler(BaseHTTPRequestHandler):
                                        "report": saved_weekly_report(self.server.store, context),
                                        "chatgpt_connected": True})
             return
+        if path == API_PREFIX + "/budgets":
+            self._json(HTTPStatus.CREATED, save_budget(self.server.store, self._read_json()))
+            return
+        if path == API_PREFIX + "/calendar":
+            self._json(HTTPStatus.CREATED, save_commitment(self.server.store, self._read_json()))
+            return
+        if path == API_PREFIX + "/calendar/cards":
+            self._json(HTTPStatus.CREATED, save_card_due_rule(self.server.store, self._read_json()))
+            return
         if path == API_PREFIX + "/imports/preview":
             items = prepare_import(self._read_json(8_000_000))
             self._json(HTTPStatus.OK, {"count": len(items), "sample": items[:5]})
@@ -364,6 +391,11 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if not self._require_same_origin():
             return
         path, _ = self._route()
+        if path.startswith(API_PREFIX + "/investments/flows/"):
+            import_key = path.removeprefix(API_PREFIX + "/investments/flows/")
+            classify_flow(self.server.store, import_key, self._read_json().get("classification"))
+            self._json(HTTPStatus.OK, {"classification_saved": True})
+            return
         transaction_id = self._transaction_id(path)
         if transaction_id is None:
             self._json(HTTPStatus.NOT_FOUND, {"error": "Rota não encontrada."})
@@ -373,7 +405,25 @@ class FinanceHandler(BaseHTTPRequestHandler):
     def _delete(self) -> None:
         if not self._require_same_origin():
             return
-        path, _ = self._route()
+        path, query = self._route()
+        if path == API_PREFIX + "/budgets":
+            delete_budget(self.server.store, self._scope(query, allow_all=False), query.get("category", [""])[0])
+            self._json(HTTPStatus.OK, {"deleted": True})
+            return
+        if path.startswith(API_PREFIX + "/calendar/"):
+            raw_id = path.removeprefix(API_PREFIX + "/calendar/")
+            if raw_id.startswith("cards/"):
+                raw_rule_id = raw_id.removeprefix("cards/")
+                if not raw_rule_id.isdecimal():
+                    raise ValidationError("Vencimento de cartão inválido.")
+                delete_card_due_rule(self.server.store, int(raw_rule_id))
+                self._json(HTTPStatus.OK, {"deleted": True})
+                return
+            if not raw_id.isdecimal():
+                raise ValidationError("Compromisso inválido.")
+            delete_commitment(self.server.store, int(raw_id))
+            self._json(HTTPStatus.OK, {"deleted": True})
+            return
         if path == API_PREFIX + "/investments/brapi-token":
             self.server.market.delete_token()
             self._json(HTTPStatus.OK, {"configured": False})

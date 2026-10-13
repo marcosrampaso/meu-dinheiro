@@ -41,6 +41,21 @@ class CDITests(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 benchmark.overview(2)
 
+    def test_refresh_backfills_cdi_for_older_position(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = FinanceStore(Path(directory) / "test.db")
+            with store._connect() as connection:
+                connection.execute("""INSERT INTO investment_snapshots
+                    (as_of, total_cents, assets_cents, receivables_cents, cash_cents)
+                    VALUES ('2025-01-01', 10000, 10000, 0, 0)""")
+            def rate_for_start(start, end):
+                return [{"source": "bcb", "identifier": "12", "quote_date": start.isoformat(),
+                         "price": "0.05"}]
+            with patch("cdi.fetch_cdi", side_effect=rate_for_start) as fetch:
+                CDIBenchmark(store).refresh(date(2026, 10, 13))
+            self.assertEqual(fetch.call_count, 2)
+            self.assertEqual(len(store.market_quotes("bcb", "12")), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

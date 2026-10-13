@@ -227,6 +227,41 @@ class FinanceStore:
                 )
             """)
             connection.execute("""
+                CREATE TABLE IF NOT EXISTS category_budgets (
+                    scope TEXT NOT NULL CHECK (scope IN ('personal', 'business')),
+                    category TEXT NOT NULL,
+                    limit_cents INTEGER NOT NULL CHECK (limit_cents > 0),
+                    PRIMARY KEY (scope, category)
+                )
+            """)
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS planned_cashflows (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    scope TEXT NOT NULL CHECK (scope IN ('personal', 'business')),
+                    kind TEXT NOT NULL CHECK (kind IN ('income', 'expense')),
+                    description TEXT NOT NULL,
+                    amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+                    due_day INTEGER NOT NULL CHECK (due_day BETWEEN 1 AND 31),
+                    starts_month TEXT NOT NULL
+                )
+            """)
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS investment_flow_classifications (
+                    import_key TEXT PRIMARY KEY REFERENCES investment_entries(import_key),
+                    classification TEXT NOT NULL CHECK (classification IN ('external', 'internal'))
+                )
+            """)
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS card_due_rules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source TEXT NOT NULL,
+                    scope TEXT NOT NULL CHECK (scope IN ('personal', 'business')),
+                    due_day INTEGER NOT NULL CHECK (due_day BETWEEN 1 AND 31),
+                    month_offset INTEGER NOT NULL CHECK (month_offset IN (0, 1)),
+                    UNIQUE (source, scope)
+                )
+            """)
+            connection.execute("""
                 CREATE TABLE IF NOT EXISTS investment_news (
                     signature TEXT PRIMARY KEY,
                     as_of TEXT NOT NULL,

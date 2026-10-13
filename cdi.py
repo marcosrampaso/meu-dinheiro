@@ -77,11 +77,28 @@ class CDIBenchmark:
     def refresh(self, today: date | None = None) -> None:
         today = today or date.today()
         try:
-            rates = fetch_cdi(today - timedelta(days=400), today)
+            recent_start = today - timedelta(days=400)
+            rates = fetch_cdi(recent_start, today)
             if not rates:
                 raise ValueError("O Banco Central não retornou taxas do CDI.")
             checked = datetime.now(timezone.utc).isoformat(timespec="seconds")
             self.store.save_market_quotes([{**row, "checked_at": checked} for row in rates])
+            with self.store._connect() as connection:
+                earliest_position = connection.execute(
+                    "SELECT MIN(as_of) FROM investment_snapshots").fetchone()[0]
+                oldest_rate = connection.execute("""SELECT MIN(quote_date) FROM market_quotes
+                    WHERE source = 'bcb' AND identifier = '12'""").fetchone()[0]
+            if earliest_position:
+                first = date.fromisoformat(earliest_position)
+                if first < recent_start and (oldest_rate is None or
+                                             date.fromisoformat(oldest_rate) > first + timedelta(days=7)):
+                    chunk_start = first
+                    historical_end = recent_start - timedelta(days=1)
+                    while chunk_start <= historical_end:
+                        chunk_end = min(chunk_start + timedelta(days=400), historical_end)
+                        older = fetch_cdi(chunk_start, chunk_end)
+                        self.store.save_market_quotes([{**row, "checked_at": checked} for row in older])
+                        chunk_start = chunk_end + timedelta(days=1)
             self._checked_at = checked
             self._error = None
         except (OSError, ValueError, json.JSONDecodeError) as exc:

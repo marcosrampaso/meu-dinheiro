@@ -14,6 +14,8 @@
   <script src="/investments.js" defer></script>
   <script src="/news.js" defer></script>
   <script src="/weekly.js" defer></script>
+  <script src="/planning.js" defer></script>
+  <script src="/performance.js" defer></script>
   <script src="/categories.js" defer></script>
   <script src="/manual-card.js" defer></script>
 </head>
@@ -52,6 +54,12 @@
         <article class="metric"><span>Fatura paga no mês</span><strong id="card-payment">R$ 0,00</strong><small id="card-purchases">Compras no cartão: R$ 0,00</small></article>
       </section>
 
+      <section class="panel health-panel" aria-labelledby="health-title">
+        <div class="panel-header"><div><p class="eyebrow">CONFIANÇA DOS DADOS</p><h2 id="health-title">O que falta neste mês?</h2><p>Conferência dos extratos e faturas conhecidos pelo aplicativo.</p></div><span id="health-badge" class="health-badge">Conferindo...</span></div>
+        <div id="health-items" class="health-items" aria-live="polite"></div>
+        <p id="health-note" class="chart-note"></p>
+      </section>
+
       <section class="charts-section" aria-labelledby="charts-title">
         <div class="charts-heading"><div><p class="eyebrow">EVOLUÇÃO</p><h2 id="charts-title">Seus números ao longo do tempo</h2><p>Os gráficos acompanham a visão e o mês selecionados.</p></div><label class="chart-period">Período <select id="chart-months" aria-label="Período dos gráficos"><option value="6">6 meses</option><option value="12">12 meses</option><option value="24">24 meses</option></select></label></div>
         <div class="charts-grid">
@@ -66,11 +74,32 @@
         <div class="panel-header"><div><p class="eyebrow">RESUMO SEMANAL</p><h2 id="weekly-title">Como foram seus gastos</h2><p id="weekly-period">Carregando a última semana concluída...</p></div><strong id="weekly-total">—</strong></div>
         <p class="panel-intro">Débito e cartão pela data da compra; sem pagamentos de fatura e transferências. Os totais refletem apenas os dados já registrados.</p>
         <div id="weekly-comparison" class="weekly-comparison"></div>
+        <div id="weekly-highlights" class="weekly-highlights"></div>
         <div id="weekly-categories" class="weekly-categories"></div>
         <p class="weekly-privacy">Ao gerar, o GPT-6 Luna recebe apenas os totais por categoria desta semana e da anterior. Descrições, lançamentos individuais, saldos e arquivos não são enviados. A análise só muda quando você clicar para gerar.</p>
         <div class="form-actions"><button id="weekly-generate" class="secondary-button" type="button" disabled>Gerar insights com Luna</button><span id="weekly-status" role="status" aria-live="polite"></span></div>
         <div id="weekly-report" class="weekly-report" aria-live="polite"></div>
       </section>
+
+      <div class="planning-grid">
+        <section class="panel planning-panel" aria-labelledby="budget-title">
+          <div class="panel-header"><div><p class="eyebrow">PLANEJAMENTO</p><h2 id="budget-title">Orçamento por categoria</h2></div></div>
+          <p class="panel-intro">Limites mensais recorrentes. Compras no débito e cartão entram pela data da compra, sem pagamentos de fatura.</p>
+          <form id="budget-form" class="planning-form"><label>Área<select name="scope"><option value="personal">Pessoal</option><option value="business">PJ</option></select></label><label>Categoria<input name="category" list="budget-categories" maxlength="60" required placeholder="Ex.: Alimentação"></label><datalist id="budget-categories"></datalist><label>Limite mensal (R$)<input name="limit" inputmode="decimal" required placeholder="0,00"></label><button class="secondary-button" type="submit">Salvar limite</button></form>
+          <div id="budget-status" class="import-status" role="status" aria-live="polite"></div>
+          <div id="budget-list" class="budget-list"></div>
+        </section>
+        <section class="panel planning-panel" aria-labelledby="calendar-title">
+          <div class="panel-header"><div><p class="eyebrow">PRÓXIMAS 6 SEMANAS</p><h2 id="calendar-title">Vencimentos e saldo previsto</h2></div><strong id="calendar-projection">—</strong></div>
+          <p class="panel-intro">Cadastre faturas, contas e entradas recorrentes. A previsão parte do último saldo importado e considera só estes itens planejados.</p>
+          <form id="calendar-form" class="planning-form"><label>Área<select name="scope"><option value="personal">Pessoal</option><option value="business">PJ</option></select></label><label>Tipo<select name="kind"><option value="expense">Saída</option><option value="income">Entrada</option></select></label><label>Descrição<input name="description" maxlength="100" required placeholder="Ex.: fatura do cartão"></label><label>Valor previsto (R$)<input name="amount" inputmode="decimal" required placeholder="0,00"></label><label>Dia do mês<input name="due_day" type="number" min="1" max="31" required></label><label>Começar em<input name="starts_month" type="month" required></label><button class="secondary-button" type="submit">Adicionar recorrência</button></form>
+          <div id="calendar-status" class="import-status" role="status" aria-live="polite"></div>
+          <div id="calendar-events" class="calendar-events"></div>
+          <details class="card-due-settings"><summary>Vencimento das faturas</summary><p class="chart-note">Escolha um cartão do histórico e informe quando a fatura vence. O valor previsto acompanha os itens registrados; se a fatura estiver parcial, a previsão também estará.</p><form id="card-due-form" class="planning-form"><label>Cartão<select name="card" required></select></label><label>Dia do vencimento<input name="due_day" type="number" min="1" max="31" required></label><label>Pagamento<select name="month_offset"><option value="0">No mês da fatura</option><option value="1">No mês seguinte</option></select></label><button class="secondary-button" type="submit">Salvar vencimento</button></form><div id="card-due-rules"></div></details>
+          <details><summary>Editar recorrências</summary><div id="calendar-commitments"></div></details>
+          <p id="calendar-note" class="chart-note"></p>
+        </section>
+      </div>
 
       <div class="content-grid">
         <section class="panel form-panel" aria-labelledby="form-title">
@@ -203,6 +232,14 @@
           <div id="cdi-chart" class="chart-area" aria-label="Gráfico do CDI acumulado" aria-live="polite"></div>
           <div id="cdi-insight" class="chart-insight" aria-live="polite">Carregando taxas do CDI...</div>
           <p id="cdi-note" class="chart-note">Fonte: <a href="https://www3.bcb.gov.br/sgspub/consultarvalores/consultarValoresSeries.do?method=consultarSeries&amp;series=12" target="_blank" rel="noopener noreferrer">Banco Central, série 12</a>. Acumulado composto por dia útil, antes de impostos e taxas.</p>
+        </section>
+        <section class="panel chart-panel performance-panel" aria-labelledby="performance-title">
+          <div class="panel-header"><div><p class="eyebrow">CARTEIRA × REFERÊNCIA</p><h2 id="performance-title">Seu rendimento contra o CDI</h2><p>Comparação por posições XP em datas diferentes, ajustada pelos aportes e saques externos.</p></div></div>
+          <div id="performance-summary" class="performance-summary"></div>
+          <div id="performance-chart" class="chart-area" aria-live="polite"></div>
+          <div id="performance-insight" class="chart-insight" aria-live="polite">Aguardando posições históricas.</div>
+          <div id="performance-flows" class="performance-flows"></div>
+          <p class="chart-note">Estimativa pelo método Dietz modificado; pode diferir da rentabilidade oficial da XP. O CDI é bruto e não considera impostos ou taxas. Revise os fluxos externos antes de comparar.</p>
         </section>
         <section class="charts-section" aria-labelledby="investment-charts-title">
           <div class="charts-heading"><div><p class="eyebrow">EVOLUÇÃO</p><h2 id="investment-charts-title">Aportes ao longo do tempo</h2><p>Gráficos montados a partir dos CSVs da XP salvos neste computador.</p></div></div>
