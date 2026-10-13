@@ -34,7 +34,7 @@ function renderNews(data) {
   newsCanRefresh = Boolean(data.chatgpt_connected);
   newsRefreshButton.disabled = !newsCanRefresh;
   if (!data.chatgpt_connected) {
-    newsStatus.textContent = "Conecte o plano ChatGPT na seção de categorias da aba Finanças para atualizar a pesquisa.";
+    newsStatus.innerHTML = 'Conecte o plano ChatGPT em <a href="#configuracoes">Configurações</a> para atualizar a pesquisa.';
   } else {
     newsStatus.textContent = data.report ? "" : "Clique em Atualizar pesquisa para buscar notícias recentes.";
   }

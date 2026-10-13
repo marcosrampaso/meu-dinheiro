@@ -51,7 +51,7 @@ function renderWeekly(data) {
     stamp.textContent = `Gerado em ${new Date(data.report.generated_at).toLocaleString("pt-BR")} com ${data.report.model}.`;
     weeklyReport.append(title, list, stamp);
   }
-  weeklyStatus.textContent = !data.chatgpt_connected ? "Conecte o ChatGPT na seção de categorias para gerar insights." :
+  weeklyStatus.textContent = !data.chatgpt_connected ? "Conecte o ChatGPT na aba Configurações para gerar insights." :
     !period.current_total_cents ? "Sem gastos registrados na última semana concluída." :
       data.report ? "" : "Os números estão prontos. Gere a análise quando quiser.";
   weeklyStatus.classList.remove("error");

@@ -167,10 +167,11 @@ class FinanceHandler(BaseHTTPRequestHandler):
             try:
                 self.server.auth.complete(query)
                 self._redirect("/?chatgpt=" +
-                               ("connected" if self.server.auth.status()["connected"] else "error"))
+                               ("connected" if self.server.auth.status()["connected"] else "error") +
+                               "#configuracoes")
             except ChatGPTAuthError as exc:
                 self.server.auth.last_error = str(exc)
-                self._redirect("/?chatgpt=error")
+                self._redirect("/?chatgpt=error#configuracoes")
             return
         if path in STATIC_FILES:
             file_path, content_type = STATIC_FILES[path]

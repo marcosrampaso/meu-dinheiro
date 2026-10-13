@@ -91,5 +91,5 @@ pluggyRemoveButton.addEventListener("click", async () => {
   finally { pluggyRemoveButton.disabled = false; }
 });
 
-document.addEventListener("investments-view-resume", refreshPluggyStatus);
+document.addEventListener("settings-view-resume", refreshPluggyStatus);
 refreshPluggyStatus();

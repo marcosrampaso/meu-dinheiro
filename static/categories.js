@@ -242,4 +242,5 @@ document.querySelector("#categorization-switch-pj").addEventListener("click", ()
 });
 document.addEventListener("finance-data-change", () => { clearCategoryPreview(); refreshCategoryStatus(); });
 document.addEventListener("finance-view-resume", () => { if (!previewContext) refreshCategoryStatus(); });
+document.addEventListener("settings-view-resume", refreshCategoryStatus);
 refreshCategoryStatus();
