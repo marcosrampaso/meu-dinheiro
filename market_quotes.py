@@ -24,19 +24,17 @@ CVM_URL = "https://dados.cvm.gov.br/dados/FI/DOC/INF_DIARIO/DADOS/inf_diario_fi_
 BRAPI_URL = "https://brapi.dev/api/v2/stocks/quote?symbols={symbol}"
 CVM_SOURCE_URL = "https://dados.cvm.gov.br/dataset/fi-doc-inf_diario"
 BRAPI_SOURCE_URL = "https://brapi.dev/docs"
-ASSETS = {
-    "FUNDO ALPHA": ("cvm", "12.345.678/0001-90"),
-    "FUNDO BETA": ("cvm", "98.765.432/0001-10"),
-    "ABCD11": ("brapi", "ABCD11"),
-    "EFGH11": ("brapi", "EFGH11"),
-}
+CNPJ_PATTERN = re.compile(r"\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}")
+TICKER_PATTERN = re.compile(r"[A-Z]{4}\d{1,2}")
 
 
-def asset_source(name: str) -> tuple[str, str] | None:
-    upper = name.upper()
-    for key, source in ASSETS.items():
-        if key in upper:
-            return source
+def asset_source(name: str, category: str, fund_cnpjs: dict[str, str]) -> tuple[str, str] | None:
+    if category == "Fundos de Investimentos":
+        identifier = fund_cnpjs.get(name.casefold())
+        return ("cvm", identifier) if identifier else None
+    symbol = name.strip().upper()
+    if category in ("Ações", "Fundos Imobiliários") and TICKER_PATTERN.fullmatch(symbol):
+        return ("brapi", symbol)
     return None
 
 
@@ -100,7 +98,7 @@ def fetch_cvm(month: str, identifiers: set[str], today: date | None = None) -> l
 
 
 def fetch_brapi(symbol: str, token: str, today: date | None = None) -> dict:
-    if symbol not in ("ABCD11", "EFGH11"):
+    if not TICKER_PATTERN.fullmatch(symbol):
         raise ValueError("Ativo não suportado.")
     payload = json.loads(_download(BRAPI_URL.format(symbol=symbol),
                                    {"Authorization": f"Bearer {token}"}, 1_000_000))
@@ -137,6 +135,21 @@ class MarketQuotes:
         self._checked_at: str | None = None
         self._errors: dict[str, str] = {}
         self._thread: threading.Thread | None = None
+
+    def fund_cnpjs(self) -> dict[str, str]:
+        path = self.store.path.parent / "market-assets.json"
+        if not path.is_file():
+            return {}
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            values = raw.get("fund_cnpjs", {})
+            if not isinstance(values, dict):
+                return {}
+            return {name.casefold(): cnpj for name, cnpj in values.items()
+                    if isinstance(name, str) and isinstance(cnpj, str)
+                    and CNPJ_PATTERN.fullmatch(cnpj)}
+        except (OSError, UnicodeError, ValueError, AttributeError):
+            return {}
 
     def token_configured(self) -> bool:
         return self.token_path.is_file() and bool(self.token_path.read_text(encoding="utf-8").strip())
@@ -177,8 +190,9 @@ class MarketQuotes:
         errors: dict[str, str] = {}
         if position:
             today = date.today()
+            fund_cnpjs = self.fund_cnpjs()
             fund_ids = {identifier for asset in position["assets"]
-                        if (source := asset_source(asset["name"])) and source[0] == "cvm"
+                        if (source := asset_source(asset["name"], asset["category"], fund_cnpjs)) and source[0] == "cvm"
                         for identifier in [source[1]]}
             months = {today.strftime("%Y%m"), position["as_of"][:7].replace("-", "")}
             if fund_ids:
@@ -194,7 +208,7 @@ class MarketQuotes:
             token = self.token_path.read_text(encoding="utf-8").strip() if self.token_configured() else None
             if token:
                 for symbol in sorted({source[1] for asset in position["assets"]
-                                      if (source := asset_source(asset["name"])) and source[0] == "brapi"}):
+                                      if (source := asset_source(asset["name"], asset["category"], fund_cnpjs)) and source[0] == "brapi"}):
                     try:
                         quote = fetch_brapi(symbol, token, today)
                         self.store.save_market_quotes([{**quote, "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}])
@@ -215,13 +229,14 @@ class MarketQuotes:
         if not position:
             return result
         snapshot_date = date.fromisoformat(position["as_of"])
+        fund_cnpjs = self.fund_cnpjs()
         for asset in position["assets"]:
-            source = asset_source(asset["name"])
+            source = asset_source(asset["name"], asset["category"], fund_cnpjs)
             row = {"name": asset["name"], "snapshot_value_cents": asset["value_cents"],
                    "cost_cents": asset["cost_cents"], "estimated_value_cents": None,
                    "gain_cents": None, "quote_date": None, "source": source[0] if source else None,
                    "source_url": CVM_SOURCE_URL if source and source[0] == "cvm" else BRAPI_SOURCE_URL if source else None,
-                   "status": "Ativo ainda sem fonte de cotação configurada."}
+                   "status": "Informe o CNPJ deste fundo em data/market-assets.json." if asset["category"] == "Fundos de Investimentos" else "Ativo ainda sem fonte de cotação configurada."}
             if source:
                 quotes = self.store.market_quotes(*source)
                 latest = quotes[0] if quotes else None

@@ -18,6 +18,10 @@ class MarketQuotesTests(unittest.TestCase):
         root = Path(self.directory.name)
         self.store = FinanceStore(root / "financas.db")
         self.market = MarketQuotes(self.store, root / "brapi-token")
+        (root / "market-assets.json").write_text(json.dumps({"fund_cnpjs": {
+            "Fundo Alpha FIRF RL": "12.345.678/0001-90",
+            "Fundo Beta FIA RL": "98.765.432/0001-10",
+        }}), encoding="utf-8")
         self.store.import_xp_positions({
             "as_of": "2026-10-13", "total_cents": 39000, "assets_cents": 39000,
             "receivables_cents": 0, "cash_cents": 0,
@@ -37,8 +41,8 @@ class MarketQuotesTests(unittest.TestCase):
         self.directory.cleanup()
 
     def test_source_mapping_and_cvm_csv_parsing(self):
-        self.assertEqual(asset_source("ABCD11"), ("brapi", "ABCD11"))
-        self.assertEqual(asset_source("Fundo Beta FIA RL"),
+        self.assertEqual(asset_source("ABCD11", "Ações", self.market.fund_cnpjs()), ("brapi", "ABCD11"))
+        self.assertEqual(asset_source("Fundo Beta FIA RL", "Fundos de Investimentos", self.market.fund_cnpjs()),
                          ("cvm", "98.765.432/0001-10"))
         csv_text = ("TP_FUNDO_CLASSE;CNPJ_FUNDO_CLASSE;ID_SUBCLASSE;DT_COMPTC;VL_QUOTA\n"
                     "FI;12.345.678/0001-90;;2026-10-09;1.32543341\n"

@@ -34,9 +34,9 @@ def completed(report, source_urls):
 class InvestmentNewsTests(unittest.TestCase):
     def test_fund_reference_must_name_the_actual_fund(self):
         self.assertTrue(_asset_source_match("Fundo Alpha FIRF RL",
-                                            "https://www.xpasset.com.br/fundos/xp-24-horas-firf-rl/"))
+                                            "https://www.xpasset.com.br/fundos/fundo-alpha-firf-rl/"))
         self.assertFalse(_asset_source_match("Fundo Beta FIA RL",
-                                             "https://conteudos.xpi.com.br/fundos/trend-metaverso-fia/"))
+                                             "https://conteudos.xpi.com.br/fundos/fundo-gama-fia/"))
 
     def test_research_sends_asset_names_only_and_keeps_verified_sources(self):
         source = "https://www.b3.com.br/pt_br/mercado-e-titulos/acoes/abcd11.htm"
