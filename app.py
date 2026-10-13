@@ -31,12 +31,14 @@ from manual_investments import (manual_overview, save_manual_flow, delete_manual
                                 save_manual_snapshot, delete_manual_snapshot)
 from pluggy_xp import PluggyXP, PluggyError
 from pluggy_inter import PluggyInter
+from local_auth import LocalAuth, LocalAuthError, SESSION_SECONDS
 
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_FILES = {
     "/": (BASE_DIR / "static" / "index.html", "text/html; charset=utf-8"),
     "/styles.css": (BASE_DIR / "static" / "styles.css", "text/css; charset=utf-8"),
+    "/auth.js": (BASE_DIR / "static" / "auth.js", "text/javascript; charset=utf-8"),
     "/app.js": (BASE_DIR / "static" / "app.js", "text/javascript; charset=utf-8"),
     "/import.js": (BASE_DIR / "static" / "import.js", "text/javascript; charset=utf-8"),
     "/xp-import.js": (BASE_DIR / "static" / "xp-import.js", "text/javascript; charset=utf-8"),
@@ -57,6 +59,7 @@ API_PREFIX = "/api/v1"
 
 class FinanceHTTPServer(ThreadingHTTPServer):
     def __init__(self, address: tuple[str, int], store: FinanceStore):
+        self.local_auth = LocalAuth(BASE_DIR / "touchid.swift", store.path.parent)
         super().__init__(address, FinanceHandler)
         self.store = store
         self.auth = ChatGPTAuth(BASE_DIR / "data" / "chatgpt-auth.json")
@@ -96,6 +99,12 @@ class FinanceHandler(BaseHTTPRequestHandler):
             ):
                 self._json(HTTPStatus.FORBIDDEN, {"error": "Host não permitido."})
                 return
+            path = urlsplit(self.path).path
+            if path.startswith(API_PREFIX) and path not in (
+                API_PREFIX + "/local-auth/status", API_PREFIX + "/local-auth/unlock"
+            ) and not self.server.local_auth.valid(self.headers.get("X-Local-Session")):
+                self._json(HTTPStatus.UNAUTHORIZED, {"error": "Desbloqueie com Touch ID para continuar."})
+                return
             action()
         except ValidationError as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
@@ -109,6 +118,8 @@ class FinanceHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
         except PluggyError as exc:
             self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
+        except LocalAuthError as exc:
+            self._json(HTTPStatus.FORBIDDEN, {"error": str(exc)})
         except NotFoundError as exc:
             self._json(HTTPStatus.NOT_FOUND, {"error": str(exc)})
         except (BrokenPipeError, ConnectionResetError):
@@ -176,6 +187,10 @@ class FinanceHandler(BaseHTTPRequestHandler):
 
     def _get(self) -> None:
         path, query = self._route()
+        if path == API_PREFIX + "/local-auth/status":
+            self._json(HTTPStatus.OK, {"touch_id_available": True,
+                                       "session_seconds": SESSION_SECONDS})
+            return
         if path == "/auth/callback":
             try:
                 self.server.auth.complete(query)
@@ -194,6 +209,8 @@ class FinanceHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Referrer-Policy", "no-referrer")
             self.end_headers()
             self.wfile.write(body)
             return
@@ -290,6 +307,16 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if not self._require_same_origin():
             return
         path, _ = self._route()
+        if path == API_PREFIX + "/local-auth/unlock":
+            self._read_json()
+            self._json(HTTPStatus.OK, {"token": self.server.local_auth.unlock(),
+                                       "session_seconds": SESSION_SECONDS})
+            return
+        if path == API_PREFIX + "/local-auth/lock":
+            self._read_json()
+            self.server.local_auth.lock(self.headers.get("X-Local-Session"))
+            self._json(HTTPStatus.OK, {"locked": True})
+            return
         if path == API_PREFIX + "/auth/chatgpt/start":
             data = self._read_json()
             client_id = data.get("client_id")
@@ -525,6 +552,8 @@ class FinanceHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
         self.wfile.write(body)
 

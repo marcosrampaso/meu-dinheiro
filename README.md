@@ -4,7 +4,7 @@ Aplicação local de finanças em Python, com tela no navegador e API JSON. Orga
 
 ## Começar
 
-Requer Python 3.10 ou mais recente. A biblioteca `pypdf` já está incluída em `vendor`. O login com ChatGPT usa `PyJWT` e `cryptography` para validar a identidade.
+Requer macOS com Touch ID cadastrado, as ferramentas de linha de comando do Xcode (`xcrun swiftc`) e Python 3.10 ou mais recente. A biblioteca `pypdf` já está incluída em `vendor`. O login com ChatGPT usa `PyJWT` e `cryptography` para validar a identidade.
 
 ```bash
 python3 -m venv .venv
@@ -18,7 +18,13 @@ Acesse <http://127.0.0.1:8765>. Para usar outra porta ou outro banco SQLite:
 .venv/bin/python app.py --port 8767 --db /caminho/para/financas.db
 ```
 
-O banco padrão fica em `data/financas.db` e é criado na primeira execução. **Bancos, extratos, faturas, senhas e chaves de API não fazem parte do repositório.** Faça backup do banco separadamente. O servidor escuta apenas em `127.0.0.1`; uma futura versão acessível pela rede precisará de autenticação.
+O banco padrão fica em `data/financas.db` e é criado na primeira execução. **Bancos, extratos, faturas, senhas e chaves de API não fazem parte do repositório.** Faça backup do banco separadamente. O servidor escuta apenas em `127.0.0.1`.
+
+## Proteção com Touch ID
+
+Ao abrir ou atualizar a página, clique em **Desbloquear com Touch ID** e confirme no sensor do Mac. A API financeira só responde depois da aprovação biométrica. A autorização dura no máximo dez minutos, fica apenas na memória do navegador e do servidor e é revogada ao clicar em **Bloquear** ou ao sair da aba. Ao voltar à aba, a página recarrega e pede Touch ID novamente. Não há alternativa por senha do macOS: se o Touch ID não estiver disponível ou a digital for recusada, o acesso continua bloqueado. O aplicativo usa a API LocalAuthentication da Apple; ele não recebe nem armazena sua digital.
+
+O Touch ID protege a **interface e a API local** contra acesso casual com o Mac já desbloqueado. O banco SQLite e as credenciais locais continuam em arquivos no disco, sem criptografia própria; um usuário com acesso à sua sessão do macOS ou um programa malicioso executado nela pode ler esses arquivos diretamente. Para proteger os dados se o Mac for perdido ou roubado, mantenha **FileVault**, senha forte e bloqueio automático do macOS ativados. O servidor local não deve ser exposto à rede.
 
 ## Funcionalidades
 

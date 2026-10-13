@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#eef3ef">
   <title>Meu Dinheiro</title>
   <link rel="stylesheet" href="/styles.css">
+  <script src="/auth.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/import.js" defer></script>
   <script src="/xp-import.js" defer></script>
@@ -21,11 +22,22 @@
   <script src="/categories.js" defer></script>
   <script src="/manual-card.js" defer></script>
 </head>
-<body>
+<body class="locked">
+  <section id="local-auth-overlay" class="local-auth-overlay" role="dialog" aria-modal="true" aria-labelledby="local-auth-title">
+    <div class="local-auth-card">
+      <span class="brand-mark" aria-hidden="true">◈</span>
+      <p class="eyebrow">ACESSO LOCAL</p>
+      <h1 id="local-auth-title">Meu Dinheiro</h1>
+      <p>Use o Touch ID deste Mac para abrir seus dados financeiros.</p>
+      <button id="local-auth-button" class="primary-button" type="button">Desbloquear com Touch ID</button>
+      <p id="local-auth-status" class="import-status" role="status" aria-live="polite"></p>
+    </div>
+  </section>
   <div class="shell">
     <header class="topbar">
       <div class="brand"><span class="brand-mark" aria-hidden="true">◈</span><span>Meu Dinheiro</span></div>
       <span class="local-badge">Dados salvos neste computador</span>
+      <button id="local-lock-button" class="text-button" type="button">Bloquear</button>
     </header>
 
     <main>

@@ -24,10 +24,19 @@ function showNotice(message, isError = false) {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(API + path, {
+  await localAuth.ready();
+  const send = () => fetch(API + path, {
     ...options,
-    headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    headers: { ...(options.body ? { "Content-Type": "application/json" } : {}),
+               ...options.headers, "X-Local-Session": localAuth.token() },
+    cache: "no-store",
   });
+  let response = await send();
+  if (response.status === 401) {
+    localAuth.lock();
+    await localAuth.ready();
+    response = await send();
+  }
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error || "Não foi possível concluir a operação.");
   return payload;

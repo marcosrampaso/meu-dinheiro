@@ -37,6 +37,22 @@ class FakeSocket:
         self.output.write(data)
 
 
+class FakeLocalAuth:
+    def __init__(self):
+        self.token = "test-session"
+
+    def valid(self, token):
+        return token == self.token and self.token is not None
+
+    def unlock(self):
+        self.token = "test-session"
+        return self.token
+
+    def lock(self, token):
+        if token == self.token:
+            self.token = None
+
+
 class ApiTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -46,13 +62,16 @@ class ApiTests(unittest.TestCase):
         self.server.cdi = CDIBenchmark(self.store)
         self.server.pluggy = PluggyXP(self.store, Path(self.directory.name) / "pluggy-xp.json")
         self.server.pluggy_inter = PluggyInter(self.store, self.server.pluggy)
+        self.server.local_auth = FakeLocalAuth()
 
     def tearDown(self):
         self.directory.cleanup()
 
-    def call_api(self, path, method="GET", data=None, headers=None):
+    def call_api(self, path, method="GET", data=None, headers=None, authenticated=True):
         body = json.dumps(data).encode("utf-8") if data is not None else b""
         header_lines = ["Connection: close"]
+        if authenticated:
+            header_lines.append("X-Local-Session: test-session")
         if not headers or "Host" not in headers:
             header_lines.insert(0, "Host: 127.0.0.1:8765")
         if data is not None:
@@ -65,6 +84,23 @@ class ApiTests(unittest.TestCase):
         status = int(head.split(b" ", 2)[1])
         content = json.loads(response_body) if b"application/json" in head else response_body
         return status, content
+
+    def test_touch_id_gate_covers_reads_and_writes(self):
+        self.assertEqual(self.call_api("/api/v1/summary?month=2026-10", authenticated=False)[0], 401)
+        self.assertEqual(self.call_api("/api/v1/investments/overview", authenticated=False)[0], 401)
+        self.assertEqual(self.call_api("/api/v1/transactions", "POST", {
+            "kind": "expense", "description": "Teste", "amount": "1,00",
+            "occurred_on": "2026-10-13", "category": "Outros",
+        }, authenticated=False)[0], 401)
+        self.assertEqual(self.call_api("/api/v1/local-auth/status", authenticated=False)[0], 200)
+        self.assertEqual(self.call_api("/api/v1/local-auth/unlock", "POST", {},
+                                       headers={"Origin": "https://other.example"},
+                                       authenticated=False)[0], 403)
+        self.assertEqual(self.call_api("/api/v1/local-auth/unlock", "POST", {},
+                                       authenticated=False)[1]["token"], "test-session")
+        self.assertEqual(self.call_api("/api/v1/summary?month=2026-10")[0], 200)
+        self.assertEqual(self.call_api("/api/v1/local-auth/lock", "POST", {})[0], 200)
+        self.assertEqual(self.call_api("/api/v1/summary?month=2026-10")[0], 401)
 
     def test_crud_and_summary(self):
         data = {
