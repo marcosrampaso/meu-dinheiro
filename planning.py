@@ -209,7 +209,8 @@ def calendar_overview(store: FinanceStore, scope: str, today: date | None = None
             SELECT source, scope, invoice_month,
               SUM(CASE WHEN kind = 'expense' THEN amount_cents ELSE -amount_cents END) AS total_cents,
               SUM(CASE WHEN import_key IS NOT NULL THEN 1 ELSE 0 END) AS imported_count,
-              SUM(CASE WHEN import_key IS NULL THEN 1 ELSE 0 END) AS manual_count
+              SUM(CASE WHEN import_key IS NULL THEN 1 ELSE 0 END) AS manual_count,
+              SUM(pending) AS pending_count
             FROM transactions WHERE invoice_month IS NOT NULL AND (? = 'all' OR scope = ?)
             GROUP BY source, scope, invoice_month
         """, (scope, scope))]
@@ -247,7 +248,7 @@ def calendar_overview(store: FinanceStore, scope: str, today: date | None = None
                            "due_on": due.isoformat(), "scope": invoice["scope"], "kind": "expense",
                            "description": "Fatura " + invoice["source"],
                            "amount_cents": invoice["total_cents"],
-                           "partial": invoice["imported_count"] == 0 or invoice["manual_count"] > 0})
+                           "partial": invoice["imported_count"] == 0 or invoice["manual_count"] > 0 or invoice["pending_count"] > 0})
     events.sort(key=lambda item: (item["due_on"], item["source_type"], item["id"]))
     opening = sum(row["amount_cents"] for row in balances) if balances else None
     running = opening

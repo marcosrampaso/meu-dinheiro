@@ -1,9 +1,11 @@
 const pluggyForm = document.querySelector("#pluggy-xp-form");
 const pluggyPreviewButton = document.querySelector("#pluggy-xp-preview-button");
+const xpImportButton = document.querySelector("#pluggy-xp-import-button");
 const pluggyRemoveButton = document.querySelector("#pluggy-xp-remove");
 const interPreviewButton = document.querySelector("#pluggy-inter-preview-button");
 const interImportButton = document.querySelector("#pluggy-inter-import-button");
 let interPreviewToken = null;
+let xpPreviewToken = null;
 
 function interStatus(message, error = false) {
   const target = document.querySelector("#pluggy-inter-status");
@@ -38,6 +40,9 @@ async function refreshPluggyStatus() {
     document.querySelector("#pluggy-xp-state").textContent = result.configured
       ? `XP configurada${result.inter_configured ? " · Inter configurado" : ""}`
       : result.inter_configured ? "Inter configurado · XP pendente" : "Conexão ainda não configurada";
+    const synced = Object.entries(result.last_sync || {}).map(([source, value]) =>
+      `${source}: ${new Date(value).toLocaleString("pt-BR")}`);
+    if (synced.length) document.querySelector("#pluggy-xp-state").textContent += " · Última sincronização: " + synced.join(" · ");
   } catch (error) { pluggyStatus(error.message, true); }
 }
 
@@ -56,18 +61,16 @@ function renderPluggyPreview(data) {
   const target = document.querySelector("#pluggy-xp-preview");
   target.replaceChildren();
   const heading = document.createElement("h3");
-  heading.textContent = `Pluggy: ${data.assets.length} ativo(s) · bruto ${money.format(data.gross_cents / 100)}`;
+  heading.textContent = `${data.snapshot.assets.length} ativos · ${data.count} movimentações da XP`;
   target.append(heading);
-  for (const asset of data.assets) {
+  for (const asset of data.snapshot.assets) {
     target.append(pluggyRow(asset.name,
-      `${asset.type || "Ativo"} · bruto ${money.format(asset.gross_cents / 100)} · líquido ${money.format(asset.net_cents / 100)}`));
+      `${asset.category} · ${money.format(asset.value_cents / 100)}${asset.quote_date ? ` · cota de ${formatDate(asset.quote_date)}` : ""}`));
   }
-  const previous = document.createElement("h3");
-  previous.textContent = `Última planilha XP: ${data.existing_assets.length} ativo(s)`;
-  target.append(previous);
-  for (const asset of data.existing_assets) {
-    target.append(pluggyRow(asset.name, money.format(asset.value_cents / 100)));
+  if (data.period) {
+    target.append(pluggyRow("Período substituído", `${formatDate(data.period.starts_on)} a ${formatDate(data.period.ends_on)} · ${data.replaced_count} registros antigos`));
   }
+  target.append(pluggyRow("Ativos + saldo disponível", `${money.format(data.snapshot.total_cents / 100)} · proventos a receber não informados`));
   const note = document.createElement("p");
   note.textContent = data.note;
   target.append(note);
@@ -78,11 +81,14 @@ function renderInterPreview(data) {
   const target = document.querySelector("#pluggy-inter-preview");
   target.replaceChildren();
   const title = document.createElement("h3");
-  title.textContent = `${data.new_count} lançamento(s) novo(s) para importar`;
+  title.textContent = `${data.new_count} lançamento(s) da Pluggy substituirão ${data.replaced_count} registros locais`;
   target.append(title);
   for (const account of data.accounts) {
     target.append(pluggyRow(account.name,
       `${account.type === "card" ? "Cartão" : "Conta"} · ${account.received} transações recebidas · destino: ${account.source}`));
+  }
+  for (const period of data.periods) {
+    target.append(pluggyRow(period.source, `Substituir de ${formatDate(period.starts_on)} a ${formatDate(period.ends_on)}`));
   }
   if (data.bank_balance) {
     target.append(pluggyRow("Saldo da conta",
@@ -99,7 +105,7 @@ function renderInterPreview(data) {
   }
   for (const row of data.new_items) {
     target.append(pluggyRow(row.description,
-      `${formatDate(row.occurred_on)} · ${row.kind === "expense" ? "Saída" : "Entrada"} ${money.format(row.amount_cents / 100)} · ${row.invoice_month || "conta"} · ${row.category}${row.excluded ? " (fora dos gastos)" : ""}`));
+      `${formatDate(row.occurred_on)} · ${row.kind === "expense" ? "Saída" : "Entrada"} ${money.format(row.amount_cents / 100)} · ${row.invoice_month || "conta"} · ${row.category}${row.excluded ? " (fora dos gastos)" : ""}${row.pending ? " · provisório" : ""}`));
   }
   const note = document.createElement("p");
   note.textContent = data.note;
@@ -120,6 +126,8 @@ pluggyForm.addEventListener("submit", async event => {
     }) });
     pluggyForm.reset();
     clearInterPreview();
+    xpPreviewToken = null;
+    xpImportButton.disabled = true;
     pluggyStatus("Conexão salva. Confira XP e/ou Inter pelos botões abaixo.");
     await refreshPluggyStatus();
   } catch (error) { pluggyStatus(error.message, true); }
@@ -130,11 +138,29 @@ pluggyPreviewButton.addEventListener("click", async () => {
   pluggyPreviewButton.disabled = true;
   pluggyStatus("Consultando a Pluggy...");
   try {
-    const data = await request("/investments/pluggy/preview", { method: "POST", body: "{}" });
+    xpPreviewToken = null;
+    xpImportButton.disabled = true;
+    const data = await request("/investments/pluggy/sync-preview", { method: "POST", body: "{}" });
     renderPluggyPreview(data);
-    pluggyStatus("Prévia recebida. Compare os ativos com a última posição XP.");
+    xpPreviewToken = data.preview_token;
+    xpImportButton.disabled = false;
+    pluggyStatus("Confira as datas e os ativos. Ao sincronizar, a Pluggy substituirá o período mostrado.");
   } catch (error) { pluggyStatus(error.message, true); }
   finally { await refreshPluggyStatus(); }
+});
+
+xpImportButton.addEventListener("click", async () => {
+  if (!xpPreviewToken) return;
+  xpImportButton.disabled = true;
+  try {
+    const result = await request("/investments/pluggy/import", {
+      method: "POST", body: JSON.stringify({ preview_token: xpPreviewToken }),
+    });
+    xpPreviewToken = null;
+    pluggyStatus(`${result.imported} movimentações substituíram ${result.replaced} registros; ${result.asset_count} ativos atualizados. Cópia de recuperação salva localmente.`);
+    document.dispatchEvent(new Event("investment-data-change"));
+    await refresh();
+  } catch (error) { pluggyStatus(error.message, true); }
 });
 
 pluggyRemoveButton.addEventListener("click", async () => {
@@ -144,6 +170,8 @@ pluggyRemoveButton.addEventListener("click", async () => {
     document.querySelector("#pluggy-xp-preview").replaceChildren();
     document.querySelector("#pluggy-xp-preview").hidden = true;
     clearInterPreview();
+    xpPreviewToken = null;
+    xpImportButton.disabled = true;
     pluggyStatus("Credenciais removidas deste computador.");
     await refreshPluggyStatus();
   } catch (error) { pluggyStatus(error.message, true); }
@@ -159,7 +187,7 @@ interPreviewButton.addEventListener("click", async () => {
     renderInterPreview(data);
     interPreviewToken = data.preview_token;
     interImportButton.disabled = !(data.new_count || data.bank_balance);
-    interStatus("Prévia pronta. Confira as contas, os lançamentos novos e os ignorados antes de importar.");
+    interStatus("Confira as datas: a sincronização substituirá o Inter pessoal nesse período, usando a Pluggy como fonte.");
   } catch (error) { interStatus(error.message, true); }
   finally { await refreshPluggyStatus(); }
 });
@@ -172,7 +200,8 @@ interImportButton.addEventListener("click", async () => {
       method: "POST", body: JSON.stringify({ preview_token: interPreviewToken }),
     });
     clearInterPreview();
-    interStatus(`${result.imported} lançamento(s) importado(s), ${result.skipped} já presentes.${result.balance_updated ? " Saldo atualizado." : ""}`);
+    interStatus(`${result.imported} lançamentos substituíram ${result.replaced} registros; ${result.categories_preserved} categorias preservadas.${result.balance_updated ? " Saldo atualizado." : ""} Cópia de recuperação salva localmente.`);
+    document.dispatchEvent(new Event("investment-data-change"));
     await refresh();
   } catch (error) {
     interStatus(error.message, true);

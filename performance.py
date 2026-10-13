@@ -21,7 +21,7 @@ def classify_flow(store: FinanceStore, import_key: str, classification: str) -> 
             raise ValidationError("Movimentação XP não encontrada.")
         connection.execute("""
             INSERT INTO investment_flow_classifications (import_key, classification) VALUES (?, ?)
-            ON CONFLICT(import_key) DO UPDATE SET classification = excluded.classification
+            ON CONFLICT(import_key) DO UPDATE SET classification = excluded.classification, origin='manual'
         """, (import_key, classification))
 
 
@@ -61,7 +61,7 @@ def _benchmark_end(start: dict, end: dict, flows: list[dict], rates: list[dict])
 def performance_overview(store: FinanceStore) -> dict:
     with store._connect() as connection:
         imported_snapshots = [dict(row) for row in connection.execute("""
-            SELECT as_of, total_cents FROM investment_snapshots ORDER BY as_of
+            SELECT as_of, total_cents FROM investment_snapshots WHERE complete=1 ORDER BY as_of
         """)]
         manual_snapshots = [dict(row) for row in connection.execute("""
             SELECT as_of, total_cents FROM investment_manual_snapshots ORDER BY as_of
@@ -76,7 +76,7 @@ def performance_overview(store: FinanceStore) -> dict:
         first, last = snapshots[0]["as_of"], snapshots[-1]["as_of"]
         entries = [dict(row) for row in connection.execute("""
             SELECT e.import_key, e.occurred_at, e.description, e.amount_cents,
-                   c.classification AS override
+                   c.classification AS override, c.origin AS override_origin
             FROM investment_entries AS e LEFT JOIN investment_flow_classifications AS c
               ON c.import_key = e.import_key
             WHERE substr(e.occurred_at, 1, 10) > ? AND substr(e.occurred_at, 1, 10) <= ?
@@ -84,8 +84,9 @@ def performance_overview(store: FinanceStore) -> dict:
         """, (first, last))]
     for entry in entries:
         override = entry.pop("override")
+        override_origin = entry.pop("override_origin")
         entry["classification"] = override or imported_flow_kind(entry["description"], entry["amount_cents"])
-        entry["manual"] = bool(override)
+        entry["manual"] = bool(override and override_origin == "manual")
     visible_flows = [row for row in entries if row["classification"] in ("external", "review") or row["manual"]]
     if any(row["classification"] == "review" for row in entries):
         return {"status": "review_flows", "snapshot_count": len(snapshots),

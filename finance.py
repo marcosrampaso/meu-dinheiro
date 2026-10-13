@@ -156,6 +156,8 @@ class FinanceStore:
                 connection.execute("ALTER TABLE transactions ADD COLUMN invoice_month TEXT")
             if "scope" not in existing_columns:
                 connection.execute("ALTER TABLE transactions ADD COLUMN scope TEXT NOT NULL DEFAULT 'personal'")
+            if "pending" not in existing_columns:
+                connection.execute("ALTER TABLE transactions ADD COLUMN pending INTEGER NOT NULL DEFAULT 0")
             connection.execute("CREATE INDEX IF NOT EXISTS transactions_date_idx ON transactions(occurred_on)")
             connection.execute("CREATE INDEX IF NOT EXISTS transactions_scope_date_idx ON transactions(scope, occurred_on)")
             connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS transactions_import_key_idx ON transactions(import_key)")
@@ -177,6 +179,10 @@ class FinanceStore:
                     PRIMARY KEY (source, scope, starts_on, ends_on)
                 )
             """)
+            connection.execute("""CREATE TABLE IF NOT EXISTS authoritative_periods (
+                source TEXT NOT NULL, scope TEXT NOT NULL, starts_on TEXT NOT NULL, ends_on TEXT NOT NULL,
+                checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(source,scope,starts_on,ends_on))""")
             invoice_coverage_exists = connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'invoice_coverage'"
             ).fetchone() is not None
@@ -248,6 +254,15 @@ class FinanceStore:
                     UNIQUE(category, name)
                 )
             """)
+            position_columns = {row["name"] for row in connection.execute("PRAGMA table_info(investment_positions)")}
+            for column, definition in (("cost_known", "INTEGER NOT NULL DEFAULT 1"), ("quote_date", "TEXT")):
+                if column not in position_columns:
+                    connection.execute(f"ALTER TABLE investment_positions ADD COLUMN {column} {definition}")
+            snapshot_columns = {row["name"] for row in connection.execute("PRAGMA table_info(investment_snapshots)")}
+            for column, definition in (("provider", "TEXT NOT NULL DEFAULT 'file'"),
+                                       ("complete", "INTEGER NOT NULL DEFAULT 1"), ("checked_at", "TEXT")):
+                if column not in snapshot_columns:
+                    connection.execute(f"ALTER TABLE investment_snapshots ADD COLUMN {column} {definition}")
             connection.execute("""INSERT OR IGNORE INTO investment_assets (name, category)
                 SELECT DISTINCT name, category FROM investment_positions""")
             flow_columns = {row["name"] for row in connection.execute(
@@ -299,6 +314,9 @@ class FinanceStore:
                     classification TEXT NOT NULL CHECK (classification IN ('external', 'internal'))
                 )
             """)
+            flow_columns = {row["name"] for row in connection.execute("PRAGMA table_info(investment_flow_classifications)")}
+            if "origin" not in flow_columns:
+                connection.execute("ALTER TABLE investment_flow_classifications ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'")
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS card_due_rules (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -741,14 +759,15 @@ class FinanceStore:
 
         incoming = defaultdict(list)
         for entry in entries:
-            if entry["amount_cents"] > 0 and "pix recebido" in entry["description"].casefold():
+            if entry["amount_cents"] > 0 and ("pix recebido" in entry["description"].casefold() or entry.get("classification") == "external"):
                 incoming[(entry["occurred_on"], entry["amount_cents"])].append(entry)
         if not incoming:
             return []
         outgoing = defaultdict(list)
         for row in connection.execute("""
             SELECT id, occurred_on, amount_cents, description, scope FROM transactions
-            WHERE kind = 'expense' AND excluded = 0 AND category = 'Importado'
+            WHERE kind = 'expense' AND (category = 'Transferência para investimento' OR
+                                       (excluded = 0 AND category = 'Importado'))
               AND invoice_month IS NULL AND source LIKE 'Inter · %'
         """):
             outgoing[(row["occurred_on"], row["amount_cents"])].append(row)
@@ -861,7 +880,7 @@ class FinanceStore:
             position = dict(snapshot_row) if snapshot_row else None
             if position:
                 position["assets"] = [dict(row) for row in connection.execute("""
-                    SELECT name, category, value_cents, cost_cents, quantity, net_cents
+                    SELECT name, category, value_cents, cost_cents, quantity, net_cents, cost_known, quote_date
                     FROM investment_positions WHERE as_of = ? ORDER BY value_cents DESC, name
                 """, (position["as_of"],))]
             snapshots = [dict(row) for row in connection.execute("""
@@ -949,7 +968,7 @@ class FinanceStore:
                 return None
             position = dict(row)
             position["assets"] = [dict(asset) for asset in connection.execute("""
-                SELECT name, category, value_cents, cost_cents, quantity
+                SELECT name, category, value_cents, cost_cents, quantity, cost_known, quote_date
                 FROM investment_positions WHERE as_of = ? ORDER BY value_cents DESC, name
             """, (position["as_of"],))]
             return position
@@ -1016,6 +1035,7 @@ class FinanceStore:
             rows = connection.execute("""
                 SELECT invoice_month, source, scope,
                     COUNT(*) AS transaction_count,
+                    SUM(pending) AS pending_count,
                     SUM(CASE WHEN kind = 'expense' THEN amount_cents ELSE 0 END) AS expense_cents,
                     SUM(CASE WHEN kind = 'income' THEN amount_cents ELSE 0 END) AS credit_cents
                 FROM transactions

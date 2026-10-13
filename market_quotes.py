@@ -233,7 +233,7 @@ class MarketQuotes:
         for asset in position["assets"]:
             source = asset_source(asset["name"], asset["category"], fund_cnpjs)
             row = {"name": asset["name"], "snapshot_value_cents": asset["value_cents"],
-                   "cost_cents": asset["cost_cents"], "estimated_value_cents": None,
+                   "cost_cents": asset["cost_cents"], "cost_known": asset.get("cost_known", 1), "estimated_value_cents": None,
                    "gain_cents": None, "quote_date": None, "source": source[0] if source else None,
                    "source_url": CVM_SOURCE_URL if source and source[0] == "cvm" else BRAPI_SOURCE_URL if source else None,
                    "status": "Informe o CNPJ deste fundo em data/market-assets.json." if asset["category"] == "Fundos de Investimentos" else "Ativo ainda sem fonte de cotação configurada."}
@@ -254,9 +254,11 @@ class MarketQuotes:
                     else:
                         row["status"] = errors.get(source[1], "Aguardando cotação da brapi desde a posição importada.")
                 else:
-                    baseline = next((quote for quote in quotes if quote["quote_date"] <= position["as_of"]), None)
+                    base_date = asset.get("quote_date") or position["as_of"]
+                    snapshot_date = date.fromisoformat(base_date)
+                    baseline = next((quote for quote in quotes if quote["quote_date"] <= base_date), None)
                     if (baseline and (snapshot_date - date.fromisoformat(baseline["quote_date"])).days <= 7
-                            and latest and latest["quote_date"] > position["as_of"]
+                            and latest and latest["quote_date"] > base_date
                             and (date.today() - date.fromisoformat(latest["quote_date"])).days <= 7):
                         ratio = _positive_decimal(latest["price"]) / _positive_decimal(baseline["price"])
                         row["estimated_value_cents"] = _cents(Decimal(asset["value_cents"]) / 100 * ratio)
@@ -265,10 +267,10 @@ class MarketQuotes:
                         row["status"] = "Estimativa por variação da cota CVM; pressupõe quantidade constante."
                     else:
                         row["status"] = errors.get("cvm", "Aguardando nova cota CVM após a posição importada.")
-            if row["estimated_value_cents"] is not None:
+            if row["estimated_value_cents"] is not None and row["cost_known"]:
                 row["gain_cents"] = row["estimated_value_cents"] - asset["cost_cents"]
             result["assets"].append(row)
-        result["complete"] = bool(result["assets"]) and all(a["estimated_value_cents"] is not None for a in result["assets"])
+        result["complete"] = bool(result["assets"]) and all(a["estimated_value_cents"] is not None and a["cost_known"] for a in result["assets"])
         if result["complete"]:
             result["estimated_assets_cents"] = sum(a["estimated_value_cents"] for a in result["assets"])
             result["estimated_gain_cents"] = sum(a["gain_cents"] for a in result["assets"])

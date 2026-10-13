@@ -255,7 +255,7 @@ async function refreshInvoices() {
       const row = document.createElement("div");
       row.className = "invoice-row";
       const description = document.createElement("span");
-      description.textContent = `${item.invoice_month} · ${item.source}${item.scope === "business" ? " · PJ" : ""} · ${item.transaction_count} lançamentos`;
+      description.textContent = `${item.invoice_month} · ${item.source}${item.scope === "business" ? " · PJ" : ""} · ${item.transaction_count} lançamentos${item.pending_count ? ` · ${item.pending_count} provisórios (fatura aberta)` : ""}`;
       const value = document.createElement("b");
       value.textContent = money.format((item.expense_cents - item.credit_cents) / 100);
       const details = document.createElement("div");

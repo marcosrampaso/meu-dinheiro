@@ -162,6 +162,12 @@ class FinanceHandler(BaseHTTPRequestHandler):
         return data
 
     def _check_card_import_overlap(self, data: dict, items: list[dict]) -> None:
+        with self.server.store._connect() as connection:
+            for item in items:
+                if connection.execute("""SELECT 1 FROM authoritative_periods
+                    WHERE source=? AND scope=? AND ? BETWEEN starts_on AND ends_on LIMIT 1""",
+                    (item["source"], item.get("scope", "personal"), item["occurred_on"])).fetchone():
+                    raise ValidationError("Esse período já é atualizado pela Pluggy. Sincronize a conexão nas Configurações para evitar duplicar o extrato.")
         if items and data.get("mode") == "card" and data.get("filename", "").lower().endswith(".pdf"):
             first = items[0]
             if self.server.store.has_uncovered_invoice_imports(
@@ -260,9 +266,13 @@ class FinanceHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.OK, manual_overview(self.server.store))
             return
         if path == API_PREFIX + "/investments/pluggy/status":
+            with self.server.store._connect() as connection:
+                syncs = {row["source"]: row["updated"] for row in connection.execute(
+                    "SELECT source,MAX(checked_at) updated FROM authoritative_periods GROUP BY source")}
             self._json(HTTPStatus.OK, {"configured": self.server.pluggy.configured(),
                                        "inter_configured": self.server.pluggy.inter_configured(),
-                                       "credentials_saved": self.server.pluggy.config_path.is_file()})
+                                       "credentials_saved": self.server.pluggy.config_path.is_file(),
+                                       "last_sync": {source: value.replace(" ", "T") + "Z" for source,value in syncs.items()}})
             return
         if path == API_PREFIX + "/weekly-summary":
             context = weekly_context(self.server.store, self._scope(query))
@@ -345,11 +355,13 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if path == API_PREFIX + "/investments/imports/preview":
             data = self._read_json(3_000_000)
             entries = parse_xp_statement(data.get("filename"), data.get("content"))
+            self._check_card_import_overlap(data, [{**e, "source": "XP"} for e in entries])
             self._json(HTTPStatus.OK, self.server.store.preview_xp_statement(entries))
             return
         if path == API_PREFIX + "/investments/imports":
             data = self._read_json(3_000_000)
             entries = parse_xp_statement(data.get("filename"), data.get("content"))
+            self._check_card_import_overlap(data, [{**e, "source": "XP"} for e in entries])
             self._json(HTTPStatus.CREATED, self.server.store.import_xp_statement(entries))
             return
         if path == API_PREFIX + "/investments/positions/preview":
@@ -373,12 +385,21 @@ class FinanceHandler(BaseHTTPRequestHandler):
             return
         if path == API_PREFIX + "/investments/pluggy/config":
             self.server.pluggy.save_config(self._read_json())
+            self.server.pluggy.clear_preview()
             self.server.pluggy_inter.clear_preview()
             self._json(HTTPStatus.OK, {"configured": self.server.pluggy.configured(),
                                        "inter_configured": self.server.pluggy.inter_configured()})
             return
         if path == API_PREFIX + "/investments/pluggy/preview":
             self._json(HTTPStatus.OK, self.server.pluggy.preview())
+            return
+        if path == API_PREFIX + "/investments/pluggy/sync-preview":
+            self._json(HTTPStatus.OK, self.server.pluggy.preview_sync())
+            return
+        if path == API_PREFIX + "/investments/pluggy/import":
+            self._json(HTTPStatus.CREATED, self.server.pluggy.import_preview(self._read_json().get("preview_token")))
+            self.server.market.wake()
+            self.server.cdi.wake()
             return
         if path == API_PREFIX + "/accounts/pluggy/inter/preview":
             self._json(HTTPStatus.OK, self.server.pluggy_inter.preview())
@@ -523,6 +544,7 @@ class FinanceHandler(BaseHTTPRequestHandler):
             return
         if path == API_PREFIX + "/investments/pluggy/config":
             self.server.pluggy.delete_config()
+            self.server.pluggy.clear_preview()
             self.server.pluggy_inter.clear_preview()
             self._json(HTTPStatus.OK, {"configured": False, "inter_configured": False})
             return

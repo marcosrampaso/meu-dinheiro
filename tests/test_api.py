@@ -143,7 +143,7 @@ class ApiTests(unittest.TestCase):
         config = {"client_id": "client", "client_secret": "secret",
                   "item_id": "12345678-1234-1234-1234-123456789abc"}
         self.assertEqual(self.call_api("/api/v1/investments/pluggy/status")[1],
-                         {"configured": False, "inter_configured": False, "credentials_saved": False})
+                         {"configured": False, "inter_configured": False, "credentials_saved": False, "last_sync": {}})
         status, result = self.call_api("/api/v1/investments/pluggy/config", "POST", config)
         self.assertEqual((status, result), (200, {"configured": True, "inter_configured": False}))
         self.assertNotIn("secret", json.dumps(self.call_api("/api/v1/investments/pluggy/status")[1]))
@@ -222,6 +222,15 @@ class ApiTests(unittest.TestCase):
         status, overview = self.call_api("/api/v1/investments/overview?month=2026-10&months=3")
         self.assertEqual((status, overview["total_deposited_cents"]), (200, 1234))
         self.assertEqual(self.call_api("/api/v1/investments/overview?months=25")[0], 400)
+
+    def test_xp_csv_cannot_double_a_pluggy_period(self):
+        with self.store._connect() as connection:
+            connection.execute("INSERT INTO authoritative_periods(source,scope,starts_on,ends_on) VALUES ('XP','personal','2026-10-01','2026-10-13')")
+        payload = {"filename":"xp.csv","content":XP_CSV}
+        self.assertEqual(self.call_api("/api/v1/investments/imports/preview","POST",payload)[0],400)
+        self.assertEqual(self.call_api("/api/v1/investments/imports","POST",payload)[0],400)
+        with self.store._connect() as connection:
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM investment_entries").fetchone()[0],0)
 
     def test_investment_news_requires_position_then_caches_manual_research(self):
         self.assertEqual(self.call_api("/api/v1/investments/news", "POST", {})[0], 400)

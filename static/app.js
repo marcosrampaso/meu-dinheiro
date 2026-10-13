@@ -122,6 +122,7 @@ function renderTransactions(items) {
     const meta = document.createElement("div");
     meta.className = "transaction-meta";
     meta.textContent = `${item.category} · ${formatDate(item.occurred_on)} · ${item.source}${item.scope === "business" ? " · PJ" : ""}${item.invoice_month ? ` · Fatura ${item.invoice_month}` : ""}${item.category === "Pagamento de fatura" ? " · Saída de caixa" : item.excluded ? " · Fora do resumo" : ""}`;
+    if (item.pending) meta.textContent += " · Provisório (fatura aberta)";
     main.append(name, meta);
     const amount = document.createElement("div");
     amount.className = "transaction-amount";

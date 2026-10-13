@@ -137,22 +137,8 @@ class PluggyInter:
             if account.get("currencyCode") != "BRL" or not UUID.fullmatch(str(account.get("id", ""))):
                 raise PluggyError("A Pluggy devolveu uma conta inválida ou fora de reais.")
 
-        with self.store._connect() as connection:
-            coverage = [(row["starts_on"], row["ends_on"]) for row in connection.execute(
-                "SELECT starts_on, ends_on FROM statement_coverage WHERE source = ? AND scope = 'personal'",
-                (ACCOUNT_SOURCE,))]
-            card_months = {row["invoice_month"] for row in connection.execute(
-                "SELECT invoice_month FROM invoice_coverage WHERE source = ? AND scope = 'personal'",
-                (CARD_SOURCE,))}
-            existing_keys = {row["import_key"] for row in connection.execute(
-                "SELECT import_key FROM transactions WHERE import_key IS NOT NULL")}
-            existing_manual = {(row["occurred_on"], row["kind"], row["amount_cents"],
-                                merchant_key(row["description"])) for row in connection.execute(
-                "SELECT occurred_on,kind,amount_cents,description FROM transactions "
-                "WHERE source = ? AND scope = 'personal' AND invoice_month IS NOT NULL AND import_key IS NULL",
-                (CARD_SOURCE,))}
-
         prepared = []
+        periods = []
         skipped = Counter()
         account_summaries = []
         bank_balance = None
@@ -167,6 +153,12 @@ class PluggyInter:
                 if UUID.fullmatch(str(bill.get("id", ""))) and bill.get("dueDate"):
                     bill_months[bill["id"]] = _iso_date(bill["dueDate"], "uma fatura")[:7]
             transactions = _transactions(account_id, api_key, http_json)
+            dates = [_iso_date(row.get("date"), "uma transação") for row in transactions]
+            updated_on = _iso_date(account.get("updatedAt") or datetime.now(timezone.utc).isoformat(), "a conta")
+            if dates:
+                from pluggy_sync import covered_start
+                periods.append({"source": source, "scope": "personal", "starts_on": covered_start(self.store, source, "personal", min(dates)),
+                                "ends_on": min(date.today().isoformat(), max(updated_on, max(dates)))})
             account_summaries.append({"type": "card" if is_card else "account",
                                       "name": str(account.get("name") or ("Cartão" if is_card else "Conta"))[:80],
                                       "source": source, "received": len(transactions)})
@@ -175,7 +167,7 @@ class PluggyInter:
                                                                         datetime.now(timezone.utc).isoformat(), "a conta"),
                                 "amount_cents": _cents(account["balance"])}
             for row in transactions:
-                if row.get("status") != "POSTED":
+                if row.get("status") != "POSTED" and not (is_card and row.get("status") == "PENDING"):
                     skipped["pending"] += 1
                     continue
                 if row.get("currencyCode") != "BRL" or not UUID.fullmatch(str(row.get("id", ""))):
@@ -184,6 +176,9 @@ class PluggyInter:
                 if not description:
                     raise PluggyError("Uma transação veio sem descrição.")
                 occurred_on = _iso_date(row.get("date"), "uma transação")
+                if occurred_on > date.today().isoformat():
+                    skipped["future"] += 1
+                    continue
                 amount = _cents(row.get("amount"))
                 if amount == 0:
                     skipped["zero"] += 1
@@ -201,46 +196,43 @@ class PluggyInter:
                     metadata = row.get("creditCardMetadata") or {}
                     bill_id = metadata.get("billId") if isinstance(metadata, dict) else None
                     invoice_month = bill_months.get(bill_id)
+                    forecast = metadata.get("billForecastDate") if isinstance(metadata, dict) else None
+                    if not invoice_month and isinstance(forecast, str) and re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", forecast):
+                        invoice_month = forecast
                     if not invoice_month:
-                        skipped["no_bill"] += 1
-                        continue
-                    if invoice_month in card_months:
-                        skipped["existing_statement"] += 1
-                        continue
-                    key = merchant_key(description)
-                    if key and (occurred_on, kind, abs(amount), key) in existing_manual:
-                        skipped["manual_match"] += 1
-                        continue
+                        raise PluggyError("Um lançamento do cartão veio sem mês de fatura. Nada será substituído até conferir esse período.")
                     category, excluded = ("Estorno", False) if kind == "income" else ("Importado", False)
                 else:
                     invoice_month = None
-                    if any(start <= occurred_on <= end for start, end in coverage):
-                        skipped["existing_statement"] += 1
-                        continue
                     category, excluded = _bank_classification(row, description, kind)
                 import_key = hashlib.sha256(f"pluggy|inter|{account_id}|{row['id']}".encode()).hexdigest()
-                if import_key in existing_keys or import_key in seen_keys:
+                if import_key in seen_keys:
                     skipped["already_imported"] += 1
                     continue
                 seen_keys.add(import_key)
                 prepared.append({"kind": kind, "description": description, "category": category,
                                  "amount_cents": abs(amount), "occurred_on": occurred_on,
                                  "excluded": excluded, "source": source, "import_key": import_key,
-                                 "invoice_month": invoice_month, "scope": "personal"})
+                                 "invoice_month": invoice_month, "scope": "personal",
+                                 "pending": int(row.get("status") == "PENDING")})
         if len(prepared) > MAX_TRANSACTIONS:
             raise PluggyError("Há mais de 5.000 novos lançamentos. Importe um período menor antes de sincronizar.")
         token = secrets.token_urlsafe(24)
         with self._lock:
             self._pending = {"token": token, "expires": time.monotonic() + 600,
-                             "items": prepared, "balance": bank_balance}
+                             "items": prepared, "balance": bank_balance, "periods": periods}
+        from pluggy_sync import replacement_counts
+        replacements = replacement_counts(self.store, periods)
         return {"preview_token": token, "accounts": account_summaries,
                 "new_count": len(prepared), "skipped": dict(skipped),
+                "periods": periods, "replaced_count": replacements,
+                "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 "bank_balance": bank_balance,
                 "new_items": [{key: row[key] for key in ("kind", "description", "amount_cents",
                                                       "occurred_on", "source", "invoice_month",
-                                                      "category", "excluded")}
+                                                      "category", "excluded", "pending")}
                               for row in prepared],
-                "note": "Itens pendentes e faturas sem mês confirmado ficam fora. Extratos já importados não são substituídos."}
+                "note": "A Pluggy substitui os lançamentos do Inter pessoal nas datas acima. Categorias confirmadas são preservadas quando o lançamento é reconhecido. Compras de fatura aberta são provisórias; a conta PJ fica separada."}
 
     def import_preview(self, token: object) -> dict:
         with self._lock:
@@ -249,9 +241,5 @@ class PluggyInter:
                     time.monotonic() > pending["expires"]:
                 raise PluggyError("A prévia expirou. Consulte o Inter novamente antes de importar.")
             self._pending = None
-        items = pending["items"]
-        result = self.store.add_imported(items) if items else {"imported": 0, "skipped": 0}
-        if pending["balance"]:
-            self.store.save_account_balance(**pending["balance"], scope="personal")
-        self.store.reconcile_internal_transfers()
-        return {**result, "balance_updated": pending["balance"] is not None}
+        from pluggy_sync import apply_inter
+        return apply_inter(self.store, pending)

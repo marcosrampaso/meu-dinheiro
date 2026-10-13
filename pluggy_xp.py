@@ -6,7 +6,11 @@ import json
 import os
 import re
 import tempfile
-from datetime import datetime, timezone
+import hashlib
+import secrets
+import threading
+import time
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -98,6 +102,12 @@ class PluggyXP:
     def __init__(self, store: FinanceStore, config_path: Path):
         self.store = store
         self.config_path = config_path
+        self._sync_lock = threading.Lock()
+        self._sync_pending = None
+
+    def clear_preview(self):
+        with self._sync_lock:
+            self._sync_pending = None
 
     def configured(self) -> bool:
         try:
@@ -165,3 +175,113 @@ class PluggyXP:
                 "net_cents": sum(row["net_cents"] for row in assets),
                 "existing_assets": current,
                 "note": "Prévia dos ativos. Saldo disponível, proventos e cobertura precisam ser conferidos antes da sincronização automática."}
+
+    def preview_sync(self, http_json=_http_json) -> dict:
+        from pluggy_inter import _pages, _transactions, _iso_date, _cents as signed_cents
+        from manual_investments import imported_flow_kind
+        config = self.load_config()
+        if not config.get("item_id"):
+            raise PluggyError("Configure o itemId da XP.")
+        auth = http_json("POST", "/auth", {"clientId": config["client_id"], "clientSecret": config["client_secret"]})
+        api_key = auth.get("apiKey")
+        if not isinstance(api_key, str) or not api_key:
+            raise PluggyError("A Pluggy não devolveu uma chave válida.")
+        raw_assets = _pages("/investments?" + urlencode({"itemId": config["item_id"]}), api_key, http_json)
+        accounts = _pages("/accounts?" + urlencode({"itemId": config["item_id"]}), api_key, http_json)
+        previous = self.store.latest_investment_position()
+        previous_assets = {a["name"]: a for a in (previous or {}).get("assets", [])}
+        assets = []
+        for row in raw_assets:
+            if row.get("status") == "TOTAL_WITHDRAWAL":
+                continue
+            if row.get("currencyCode") != "BRL" or not isinstance(row.get("name"), str) or not row["name"].strip():
+                raise PluggyError("Um ativo da XP veio incompleto ou fora de reais.")
+            category = "Fundos Imobiliários" if row.get("subtype") == "REAL_ESTATE_FUND" else \
+                       "Fundos de Investimentos" if row.get("type") == "MUTUAL_FUND" else \
+                       "Ações" if row.get("type") == "EQUITY" else None
+            if category is None:
+                raise PluggyError("A XP trouxe uma classe de ativo ainda não suportada. Nada será substituído.")
+            name = row["name"].strip()
+            old = previous_assets.get(name)
+            quantity = str(row["quantity"]) if row.get("quantity") is not None else None
+            if quantity is not None:
+                try:
+                    parsed_quantity = Decimal(quantity)
+                    if not parsed_quantity.is_finite() or parsed_quantity < 0:
+                        raise ValueError
+                except (InvalidOperation, ValueError) as exc:
+                    raise PluggyError("Um ativo veio com quantidade inválida.") from exc
+            cost = _cents(row["amountOriginal"]) if row.get("amountOriginal") is not None else None
+            if cost is None and old and old.get("cost_known", 1):
+                old_quantity = old.get("quantity")
+                if ((old_quantity is not None and quantity is not None and Decimal(old_quantity) == Decimal(quantity)) or
+                        (old_quantity is None and previous["as_of"] == date.today().isoformat())):
+                    cost = old["cost_cents"]
+            assets.append({"name": name, "category": category, "value_cents": _cents(row.get("amount")),
+                           "cost_cents": cost if cost is not None else 0, "cost_known": int(cost is not None),
+                           "quantity": quantity, "net_cents": _cents(row["balance"]) if row.get("balance") is not None else None,
+                           "quote_date": _iso_date(row["date"], "a cota") if row.get("date") else None})
+        if not assets or len({a["name"] for a in assets}) != len(assets):
+            raise PluggyError("A carteira veio vazia ou com ativos repetidos. Nada será substituído.")
+        entries, dates, cash, updated_dates = [], [], 0, []
+        seen = set()
+        for account in accounts:
+            if account.get("type") != "BANK":
+                continue
+            if account.get("currencyCode") != "BRL" or not UUID.fullmatch(str(account.get("id", ""))):
+                raise PluggyError("A XP trouxe uma conta inválida.")
+            cash += signed_cents(account.get("balance"))
+            updated_dates.append(_iso_date(account.get("updatedAt") or datetime.now(timezone.utc).isoformat(), "a conta XP"))
+            for row in _transactions(account["id"], api_key, http_json):
+                occurred_on = _iso_date(row.get("date"), "uma movimentação XP")
+                dates.append(occurred_on)
+                if row.get("status") != "POSTED" or occurred_on > date.today().isoformat():
+                    continue
+                if row.get("currencyCode") != "BRL" or row.get("type") not in ("CREDIT", "DEBIT") or not UUID.fullmatch(str(row.get("id", ""))):
+                    raise PluggyError("Uma movimentação XP veio incompleta.")
+                amount = abs(signed_cents(row.get("amount"))) * (1 if row["type"] == "CREDIT" else -1)
+                if not amount:
+                    continue
+                description = re.sub(r"[\x00-\x1f]+", " ", str(row.get("description") or "")).strip()[:240]
+                if not description:
+                    raise PluggyError("Uma movimentação XP veio sem descrição.")
+                key = hashlib.sha256(f"pluggy|xp|{account['id']}|{row['id']}".encode()).hexdigest()
+                if key in seen:
+                    continue
+                seen.add(key)
+                classification = imported_flow_kind(description, amount)
+                plain = description.casefold()
+                if row.get("operationType") in ("PIX", "TED") and not any(word in plain for word in ("conta investimento", "aplica", "resgate")):
+                    classification = "external"
+                entries.append({"import_key": key, "occurred_at": occurred_on + "T12:00:00",
+                                "occurred_on": occurred_on, "description": description, "amount_cents": amount,
+                                "balance_cents": signed_cents(row["balance"]) if row.get("balance") is not None else 0,
+                                "classification": classification if classification in ("external", "internal") else None})
+        if not any(a.get("type") == "BANK" for a in accounts):
+            raise PluggyError("A XP não trouxe as contas para conferir o saldo e as movimentações.")
+        from pluggy_sync import covered_start
+        period = {"starts_on": covered_start(self.store, "XP", "personal", min(dates)),
+                  "ends_on": min(date.today().isoformat(), max(updated_dates))} if dates else None
+        checked_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        snapshot = {"as_of": date.today().isoformat(), "assets_cents": sum(a["value_cents"] for a in assets),
+                    "cash_cents": cash, "checked_at": checked_at, "assets": assets}
+        snapshot["total_cents"] = snapshot["assets_cents"] + cash
+        with self.store._connect() as connection:
+            replaced = connection.execute("SELECT COUNT(*) FROM investment_entries WHERE source='XP' AND substr(occurred_at,1,10) BETWEEN ? AND ?",
+                (period["starts_on"],period["ends_on"])).fetchone()[0] if period else 0
+        token = secrets.token_urlsafe(24)
+        with self._sync_lock:
+            self._sync_pending = {"token": token, "expires": time.monotonic()+600, "entries": entries,
+                                  "snapshot": snapshot, "period": period}
+        return {"preview_token": token, "checked_at": checked_at, "period": period, "count": len(entries),
+                "replaced_count": replaced, "snapshot": snapshot,
+                "note": "A Pluggy substitui as movimentações nas datas acima e atualiza os valores dos ativos. Custos ausentes usam a referência local quando possível. Proventos a receber não foram fornecidos: o patrimônio mostrado é parcial e não entra no comparador com o CDI."}
+
+    def import_preview(self, token):
+        with self._sync_lock:
+            pending = self._sync_pending
+            if not isinstance(token, str) or not pending or token != pending["token"] or time.monotonic() > pending["expires"]:
+                raise PluggyError("A prévia XP expirou. Consulte novamente.")
+            self._sync_pending = None
+        from pluggy_sync import apply_xp
+        return apply_xp(self.store, pending)

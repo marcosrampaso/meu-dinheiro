@@ -199,10 +199,15 @@ function renderInvestmentPosition(position, latestTotal) {
   document.querySelector("#investment-portfolio-total").textContent = money.format((latestTotal || position).total_cents / 100);
   document.querySelector("#investment-position-date").textContent = `${latestTotal?.source === "manual" ? "Saldo manual" : "Posição"} de ${formatDate((latestTotal || position).as_of)}`;
   document.querySelector("#investment-portfolio-count").textContent = `${position.assets.length} ativos`;
-  const cost = position.assets.reduce((sum, asset) => sum + asset.cost_cents, 0);
-  const difference = position.assets_cents - cost;
+  const knownAssets = position.assets.filter(asset => asset.cost_known !== 0);
+  const cost = knownAssets.reduce((sum, asset) => sum + asset.cost_cents, 0);
+  const difference = knownAssets.reduce((sum, asset) => sum + asset.value_cents, 0) - cost;
   document.querySelector("#investment-portfolio-note").textContent =
     `Composição importada de ${formatDate(position.as_of)}. Ativos: ${money.format(position.assets_cents / 100)} · Proventos a receber: ${money.format(position.receivables_cents / 100)} · Diferença entre valor bruto e custo dos ativos: ${difference < 0 ? "−" : "+"}${money.format(Math.abs(difference) / 100)}. Não equivale ao rendimento total da carteira.`;
+  if (position.provider === "pluggy") {
+    document.querySelector("#investment-position-date").textContent = `Pluggy · patrimônio parcial · ${formatDate(position.as_of)}`;
+    document.querySelector("#investment-portfolio-note").textContent = `Valores consultados na Pluggy. Patrimônio parcial: ativos + saldo disponível; proventos a receber não foram fornecidos. Cada ativo mostra a data da própria cota. Custos ausentes usam a referência local quando disponível; essa referência pode exigir atualização após novos aportes.`;
+  }
   const colors = { "Ações": "#8658ed", "Fundos de Investimentos": "#00a87b", "Fundos Imobiliários": "#ef8a37" };
   const byCategory = new Map();
   for (const asset of position.assets) byCategory.set(asset.category, (byCategory.get(asset.category) || 0) + asset.value_cents);
@@ -233,7 +238,7 @@ function renderInvestmentPosition(position, latestTotal) {
     const name = document.createElement("strong");
     name.textContent = asset.name;
     const meta = document.createElement("small");
-    meta.textContent = `${asset.category}${asset.quantity ? ` · ${asset.quantity} cotas` : ""} · Custo ${money.format(asset.cost_cents / 100)}`;
+    meta.textContent = `${asset.category}${asset.quantity ? ` · ${asset.quantity} cotas` : ""}${asset.quote_date ? ` · Cota ${formatDate(asset.quote_date)}` : ""} · ${asset.cost_known === 0 ? "Custo indisponível" : `Custo de referência ${money.format(asset.cost_cents / 100)}`}`;
     details.append(name, meta);
     const amount = document.createElement("b");
     amount.textContent = money.format(asset.value_cents / 100);
@@ -253,13 +258,21 @@ function renderInvestmentReturns(position) {
     note.textContent = "Importe uma posição detalhada para comparar custo e valor atual.";
     return;
   }
-  const cost = position.assets.reduce((sum, asset) => sum + asset.cost_cents, 0);
-  const change = position.assets_cents - cost;
+  const knownAssets = position.assets.filter(asset => asset.cost_known !== 0);
+  const cost = knownAssets.reduce((sum, asset) => sum + asset.cost_cents, 0);
+  const change = knownAssets.reduce((sum, asset) => sum + asset.value_cents, 0) - cost;
+  if (!knownAssets.length) {
+    total.textContent = "—";
+    note.textContent = "A Pluggy não forneceu custos de aquisição e não há referência local disponível para calcular o rendimento destes ativos.";
+    return;
+  }
   total.textContent = `${change < 0 ? "−" : "+"}${money.format(Math.abs(change) / 100)}`;
   total.classList.toggle("negative", change < 0);
   note.textContent = `Variação bruta estimada: ${cost ? (change / cost * 100).toFixed(2).replace(".", ",") : "0,00"}% sobre o custo dos ativos em ${formatDate(position.as_of)}. Proventos a receber e impostos não entram neste gráfico. Não representa a rentabilidade histórica total.`;
-  const maxAbs = Math.max(1, ...position.assets.map(asset => Math.abs(asset.value_cents - asset.cost_cents)));
-  for (const asset of position.assets) {
+  if (knownAssets.length !== position.assets.length) note.textContent += ` ${position.assets.length - knownAssets.length} ativo(s) sem custo ficaram fora do cálculo.`;
+  if (position.provider === "pluggy") note.textContent += " Custos não fornecidos pela Pluggy usam a referência local.";
+  const maxAbs = Math.max(1, ...knownAssets.map(asset => Math.abs(asset.value_cents - asset.cost_cents)));
+  for (const asset of knownAssets) {
     const delta = asset.value_cents - asset.cost_cents;
     const percent = asset.cost_cents ? delta / asset.cost_cents * 100 : 0;
     const row = document.createElement("div");
@@ -295,7 +308,7 @@ function renderMarketReturns(data) {
     note.textContent = "Importe uma posição detalhada da XP para acompanhar os ativos.";
     return;
   }
-  const displayedGain = asset => asset.gain_cents === null
+  const displayedGain = asset => asset.cost_known === 0 ? 0 : asset.gain_cents === null
     ? asset.snapshot_value_cents - asset.cost_cents : asset.gain_cents;
   const maxAbs = Math.max(1, ...data.assets.map(asset => Math.abs(displayedGain(asset))));
   if (data.complete) {
@@ -320,6 +333,7 @@ function renderMarketReturns(data) {
       const percent = asset.cost_cents ? gain / asset.cost_cents * 100 : 0;
       value.textContent = `${gain < 0 ? "−" : "+"}${money.format(Math.abs(gain) / 100)} (${percent < 0 ? "−" : "+"}${Math.abs(percent).toFixed(2).replace(".", ",")}%)${asset.gain_cents === null ? " · XP" : ""}`;
       value.className = gain < 0 ? "return-loss" : "return-gain";
+      if (asset.cost_known === 0) value.textContent = "Custo indisponível";
     }
     heading.append(name, value);
     row.append(heading);
