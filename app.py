@@ -29,6 +29,7 @@ from planning import (budget_overview, save_budget, delete_budget, data_health,
 from performance import performance_overview, classify_flow
 from manual_investments import (manual_overview, save_manual_flow, delete_manual_flow,
                                 save_manual_snapshot, delete_manual_snapshot)
+from pluggy_xp import PluggyXP, PluggyError
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -45,6 +46,7 @@ STATIC_FILES = {
     "/planning.js": (BASE_DIR / "static" / "planning.js", "text/javascript; charset=utf-8"),
     "/performance.js": (BASE_DIR / "static" / "performance.js", "text/javascript; charset=utf-8"),
     "/manual-investments.js": (BASE_DIR / "static" / "manual-investments.js", "text/javascript; charset=utf-8"),
+    "/pluggy-xp.js": (BASE_DIR / "static" / "pluggy-xp.js", "text/javascript; charset=utf-8"),
     "/charts.js": (BASE_DIR / "static" / "charts.js", "text/javascript; charset=utf-8"),
     "/categories.js": (BASE_DIR / "static" / "categories.js", "text/javascript; charset=utf-8"),
     "/manual-card.js": (BASE_DIR / "static" / "manual-card.js", "text/javascript; charset=utf-8"),
@@ -58,6 +60,7 @@ class FinanceHTTPServer(ThreadingHTTPServer):
         self.store = store
         self.auth = ChatGPTAuth(BASE_DIR / "data" / "chatgpt-auth.json")
         self.market = MarketQuotes(store, store.path.parent / "brapi-token")
+        self.pluggy = PluggyXP(store, store.path.parent / "pluggy-xp.json")
         self.market.start()
         self.cdi = CDIBenchmark(store)
         self.cdi.start()
@@ -101,6 +104,8 @@ class FinanceHandler(BaseHTTPRequestHandler):
         except ResearchError as exc:
             self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
         except WeeklyError as exc:
+            self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
+        except PluggyError as exc:
             self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
         except NotFoundError as exc:
             self._json(HTTPStatus.NOT_FOUND, {"error": str(exc)})
@@ -223,6 +228,9 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if path == API_PREFIX + "/investments/manual":
             self._json(HTTPStatus.OK, manual_overview(self.server.store))
             return
+        if path == API_PREFIX + "/investments/pluggy/status":
+            self._json(HTTPStatus.OK, {"configured": self.server.pluggy.configured()})
+            return
         if path == API_PREFIX + "/weekly-summary":
             context = weekly_context(self.server.store, self._scope(query))
             self._json(HTTPStatus.OK, {"period": {key: value for key, value in context.items() if key != "signature"},
@@ -319,6 +327,13 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if path == API_PREFIX + "/investments/manual/snapshots":
             self._json(HTTPStatus.CREATED, save_manual_snapshot(self.server.store, self._read_json()))
             self.server.cdi.wake()
+            return
+        if path == API_PREFIX + "/investments/pluggy/config":
+            self.server.pluggy.save_config(self._read_json())
+            self._json(HTTPStatus.OK, {"configured": True})
+            return
+        if path == API_PREFIX + "/investments/pluggy/preview":
+            self._json(HTTPStatus.OK, self.server.pluggy.preview())
             return
         if path == API_PREFIX + "/investments/brapi-token":
             self.server.market.save_token(self._read_json().get("token"))
@@ -446,6 +461,10 @@ class FinanceHandler(BaseHTTPRequestHandler):
             return
         if path == API_PREFIX + "/investments/brapi-token":
             self.server.market.delete_token()
+            self._json(HTTPStatus.OK, {"configured": False})
+            return
+        if path == API_PREFIX + "/investments/pluggy/config":
+            self.server.pluggy.delete_config()
             self._json(HTTPStatus.OK, {"configured": False})
             return
         if path.startswith(API_PREFIX + "/investments/manual/flows/"):

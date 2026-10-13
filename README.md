@@ -51,6 +51,12 @@ Para extratos CSV/OFX, selecione um arquivo por vez. Em CSV, confira o mapeament
 
 Na aba **Investimentos**, envie o CSV da conta XP e confira a prévia antes de confirmar. O app guarda as linhas em uma tabela separada e monta gráficos de aportes mensais e acumulados. PIX recebidos na XP são cruzados com débitos do Inter apenas quando data, valor e nome coincidem de forma única. Os débitos confirmados passam a **Transferência para investimento** e saem dos gastos; o saldo bancário continua vindo do extrato do Inter. Arquivos de períodos sobrepostos podem ser importados sem duplicar linhas. A movimentação interna da XP não entra como nova receita ou despesa.
 
+### Conexão XP pelo Meu Pluggy
+
+O primeiro passo da integração está na seção **Conferir conexão automática**. Para uso pessoal, siga o [guia oficial do Meu Pluggy](https://meu.pluggy.ai/api-guide): conecte a XP por **Open Finance** no Meu Pluggy, escolha o conector **MeuPluggy** no Dashboard e copie o `itemId` da XP, `Client ID` e `Client Secret`. O conector direto antigo da XP está em descontinuação; use o Open Finance equivalente. O plano pessoal documentado pela Pluggy aceita até cinco conexões. Guarde esses dados como segredos; não os envie por chat nem coloque no Git.
+
+Insira os três identificadores no app local e clique em **Conferir ativos recebidos**. O servidor consulta `POST /auth` e todas as páginas de `GET /investments?itemId=...` na API oficial da Pluggy. A tela mostra ativos e valores brutos/líquidos lado a lado com a última planilha XP. O app não lê senha da XP; o consentimento acontece no Meu Pluggy. As credenciais ficam somente em `data/pluggy-xp.json` com permissão 0600, e `data/` está ignorado pelo Git. A API local nunca devolve o segredo. **Esta etapa é uma prévia de cobertura:** ainda não altera patrimônio, gráficos nem histórico. Precisamos conferir se todos os ativos, saldo livre e proventos chegam corretamente antes de ativar a sincronização automática, para evitar uma carteira incompleta.
+
 Na mesma aba, **Importar posição detalhada** aceita o arquivo XLSX exportado pela XP. O app valida a soma dos ativos, proventos a receber e saldo contra o patrimônio informado, mostra uma prévia e salva uma fotografia por data. Se você importar outro arquivo da mesma data, essa fotografia será atualizada. A composição usa o valor bruto dos ativos; a diferença em relação ao custo informado pela XP é apenas uma comparação dos ativos da fotografia, não a rentabilidade total. Os aportes e o patrimônio são exibidos separadamente. Para acompanhar a evolução real da carteira, importe posições de outras datas.
 
 O gráfico **Rendimento por ativo** usa `valor bruto − custo` da posição selecionada e mostra essa variação em reais e percentual. O total do gráfico soma apenas os ativos da fotografia; proventos a receber, impostos e taxas não entram. Ele não calcula a rentabilidade histórica da carteira.
@@ -132,6 +138,9 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | PUT/DELETE | `/investments/manual/flows/{id}` | Edita ou exclui aporte ou resgate |
 | POST | `/investments/manual/snapshots` | Cria ou atualiza saldo total da carteira (`as_of`, `total`) |
 | DELETE | `/investments/manual/snapshots/{AAAA-MM-DD}` | Exclui saldo manual daquela data |
+| GET | `/investments/pluggy/status` | Informa se a conexão pessoal está configurada, sem devolver credenciais |
+| POST/DELETE | `/investments/pluggy/config` | Salva ou remove Client ID, Client Secret e itemId locais |
+| POST | `/investments/pluggy/preview` | Consulta ativos da XP pela Pluggy para conferência, sem alterar a carteira |
 | GET/POST | `/weekly-summary` | Totais semanais agregados e geração sob demanda de insights com Luna; `scope` aceita `personal`, `business` ou `all` |
 | GET | `/investments/market-returns` | Estimativas por ativo, datas e fontes das cotações, estado do token e da consulta |
 | POST | `/investments/brapi-token` | Salvar token local da brapi (`{"token":"..."}`) |

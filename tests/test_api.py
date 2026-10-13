@@ -12,6 +12,7 @@ from app import FinanceHandler
 from cdi import CDIBenchmark
 from chatgpt_auth import ChatGPTAuth
 from finance import FinanceStore
+from pluggy_xp import PluggyXP
 
 
 XP_CSV = ("Data;Hora;Descricao;Valor;Saldo\n"
@@ -42,6 +43,7 @@ class ApiTests(unittest.TestCase):
         self.server = SimpleNamespace(store=self.store, server_port=8765)
         self.server.auth = ChatGPTAuth(Path(self.directory.name) / "chatgpt-auth.json")
         self.server.cdi = CDIBenchmark(self.store)
+        self.server.pluggy = PluggyXP(self.store, Path(self.directory.name) / "pluggy-xp.json")
 
     def tearDown(self):
         self.directory.cleanup()
@@ -97,6 +99,18 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.call_api(f"/api/v1/investments/manual/flows/{flow['id']}", "DELETE")[0], 200)
         self.assertEqual(self.call_api("/api/v1/investments/manual/snapshots/2024-01-06", "DELETE")[0], 200)
         self.assertEqual(self.call_api("/api/v1/investments/manual")[1]["flows"], [])
+
+    def test_pluggy_connection_endpoints_do_not_return_secret(self):
+        config = {"client_id": "client", "client_secret": "secret",
+                  "item_id": "12345678-1234-1234-1234-123456789abc"}
+        self.assertEqual(self.call_api("/api/v1/investments/pluggy/status")[1], {"configured": False})
+        status, result = self.call_api("/api/v1/investments/pluggy/config", "POST", config)
+        self.assertEqual((status, result), (200, {"configured": True}))
+        self.assertNotIn("secret", json.dumps(self.call_api("/api/v1/investments/pluggy/status")[1]))
+        with patch.object(self.server.pluggy, "preview", return_value={"assets": [], "gross_cents": 0}):
+            self.assertEqual(self.call_api("/api/v1/investments/pluggy/preview", "POST", {})[0], 200)
+        self.assertEqual(self.call_api("/api/v1/investments/pluggy/config", "DELETE")[1],
+                         {"configured": False})
 
     def test_bad_input_and_cross_origin_write_are_rejected(self):
         status, _ = self.call_api("/api/v1/summary?month=wrong")

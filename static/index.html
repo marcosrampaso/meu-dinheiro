@@ -17,6 +17,7 @@
   <script src="/planning.js" defer></script>
   <script src="/performance.js" defer></script>
   <script src="/manual-investments.js" defer></script>
+  <script src="/pluggy-xp.js" defer></script>
   <script src="/categories.js" defer></script>
   <script src="/manual-card.js" defer></script>
 </head>
@@ -206,6 +207,15 @@
           <article class="metric"><span>Patrimônio na XP</span><strong id="investment-portfolio-total">—</strong><small id="investment-position-date">Importe a posição detalhada</small></article>
         </section>
         <p class="investment-note">Aportes mostram dinheiro transferido para a XP. Patrimônio mostra o valor da carteira na data do saldo registrado. São medidas diferentes e não são somadas.</p>
+        <section class="panel" aria-labelledby="pluggy-xp-title">
+          <div class="panel-header"><div><p class="eyebrow">CONEXÃO XP</p><h2 id="pluggy-xp-title">Conferir conexão automática</h2></div></div>
+          <p class="panel-intro">Para uso pessoal, conecte a XP pelo Open Finance no <a href="https://meu.pluggy.ai/api-guide" target="_blank" rel="noopener noreferrer">Meu Pluggy</a>. No Dashboard, escolha o conector MeuPluggy e copie o itemId da XP, Client ID e Client Secret. A autorização da conta acontece no serviço da Pluggy.</p>
+          <form id="pluggy-xp-form" class="planning-form"><label>Client ID<input name="client_id" autocomplete="off" required></label><label>Client Secret<input name="client_secret" type="password" autocomplete="off" required></label><label>itemId da XP<input name="item_id" autocomplete="off" required></label><div class="manual-form-actions"><button class="secondary-button" type="submit">Salvar conexão local</button><button id="pluggy-xp-remove" class="text-button" type="button" hidden>Remover conexão</button></div></form>
+          <div class="form-actions"><button id="pluggy-xp-preview-button" class="primary-button" type="button" disabled>Conferir ativos recebidos</button><span id="pluggy-xp-state"></span></div>
+          <div id="pluggy-xp-status" class="import-status" role="status" aria-live="polite"></div>
+          <div id="pluggy-xp-preview" class="import-preview" hidden></div>
+          <p class="chart-note">A prévia consulta seus investimentos pela Pluggy e mostra apenas nome e valores necessários para a conferência. Nada é incluído nos gráficos antes de compararmos a cobertura com a carteira atual. As credenciais ficam em arquivo local ignorado pelo Git e não são devolvidas pela API.</p>
+        </section>
         <section class="panel investment-portfolio" aria-labelledby="investment-portfolio-title">
           <div class="panel-header"><div><p class="eyebrow">POSIÇÃO XP</p><h2 id="investment-portfolio-title">Composição da carteira</h2></div><span id="investment-portfolio-count" class="count">—</span></div>
           <p id="investment-portfolio-note" class="panel-intro">Importe a posição detalhada da XP para ver os ativos.</p>
