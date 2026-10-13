@@ -13,6 +13,7 @@
   <script src="/charts.js" defer></script>
   <script src="/investments.js" defer></script>
   <script src="/news.js" defer></script>
+  <script src="/weekly.js" defer></script>
   <script src="/categories.js" defer></script>
   <script src="/manual-card.js" defer></script>
 </head>
@@ -59,6 +60,16 @@
           <article class="panel chart-panel chart-wide" aria-labelledby="category-month-chart-title"><div class="panel-header"><div><h3 id="category-month-chart-title">Gastos por categoria em cada mês</h3><p>Selecione uma cor para destacar a categoria nos meses</p></div></div><div id="category-month-chart" class="category-month-chart" aria-live="polite"></div><div id="category-month-legend" class="chart-legend"></div><div id="category-month-insight" class="chart-insight" aria-live="polite">Toque em uma categoria ou em uma parte da barra para explorar os gastos.</div><p class="chart-note">Débito e cartão pela data da compra. Pagamentos de fatura e transferências ficam fora.</p></article>
           <article class="panel chart-panel chart-wide" aria-labelledby="balance-chart-title"><div class="panel-header"><div><h3 id="balance-chart-title">Saldo das contas</h3><p>Saldo registrado nos dias disponíveis em cada extrato</p></div></div><div id="balance-chart" class="chart-area" aria-live="polite"></div><div id="balance-insight" class="chart-insight" aria-live="polite">Passe o mouse ou selecione um ponto para ver o saldo do dia.</div><div id="balance-chart-legend" class="chart-legend"></div><p id="balance-chart-note" class="chart-note"></p></article>
         </div>
+      </section>
+
+      <section class="panel weekly-panel" aria-labelledby="weekly-title">
+        <div class="panel-header"><div><p class="eyebrow">RESUMO SEMANAL</p><h2 id="weekly-title">Como foram seus gastos</h2><p id="weekly-period">Carregando a última semana concluída...</p></div><strong id="weekly-total">—</strong></div>
+        <p class="panel-intro">Débito e cartão pela data da compra; sem pagamentos de fatura e transferências. Os totais refletem apenas os dados já registrados.</p>
+        <div id="weekly-comparison" class="weekly-comparison"></div>
+        <div id="weekly-categories" class="weekly-categories"></div>
+        <p class="weekly-privacy">Ao gerar, o GPT-6 Luna recebe apenas os totais por categoria desta semana e da anterior. Descrições, lançamentos individuais, saldos e arquivos não são enviados. A análise só muda quando você clicar para gerar.</p>
+        <div class="form-actions"><button id="weekly-generate" class="secondary-button" type="button" disabled>Gerar insights com Luna</button><span id="weekly-status" role="status" aria-live="polite"></span></div>
+        <div id="weekly-report" class="weekly-report" aria-live="polite"></div>
       </section>
 
       <div class="content-grid">
@@ -185,6 +196,13 @@
             <form id="brapi-token-form"><label>Token da brapi<input id="brapi-token-input" type="password" autocomplete="off" placeholder="Cole seu token" required></label><div class="form-actions"><button class="secondary-button" type="submit">Salvar token</button><button id="brapi-token-delete" class="text-button" type="button" hidden>Remover token</button><span id="brapi-token-state"></span></div></form>
             <div id="brapi-token-status" class="import-status" role="status" aria-live="polite"></div>
           </div>
+        </section>
+        <section class="panel chart-panel cdi-panel" aria-labelledby="cdi-title">
+          <div class="panel-header"><div><p class="eyebrow">REFERÊNCIA DE RENDIMENTO</p><h2 id="cdi-title">CDI acumulado</h2><p>Somente o rendimento do CDI no período, sem aportes ou valores da carteira.</p></div><strong id="cdi-total">—</strong></div>
+          <label class="chart-period" for="cdi-months">Período<select id="cdi-months"><option value="1">1 mês</option><option value="3">3 meses</option><option value="6" selected>6 meses</option><option value="12">12 meses</option></select></label>
+          <div id="cdi-chart" class="chart-area" aria-label="Gráfico do CDI acumulado" aria-live="polite"></div>
+          <div id="cdi-insight" class="chart-insight" aria-live="polite">Carregando taxas do CDI...</div>
+          <p id="cdi-note" class="chart-note">Fonte: <a href="https://www3.bcb.gov.br/sgspub/consultarvalores/consultarValoresSeries.do?method=consultarSeries&amp;series=12" target="_blank" rel="noopener noreferrer">Banco Central, série 12</a>. Acumulado composto por dia útil, antes de impostos e taxas.</p>
         </section>
         <section class="charts-section" aria-labelledby="investment-charts-title">
           <div class="charts-heading"><div><p class="eyebrow">EVOLUÇÃO</p><h2 id="investment-charts-title">Aportes ao longo do tempo</h2><p>Gráficos montados a partir dos CSVs da XP salvos neste computador.</p></div></div>

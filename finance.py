@@ -220,6 +220,13 @@ class FinanceStore:
                 )
             """)
             connection.execute("""
+                CREATE TABLE IF NOT EXISTS weekly_reports (
+                    signature TEXT PRIMARY KEY,
+                    generated_at TEXT NOT NULL,
+                    report_json TEXT NOT NULL
+                )
+            """)
+            connection.execute("""
                 CREATE TABLE IF NOT EXISTS investment_news (
                     signature TEXT PRIMARY KEY,
                     as_of TEXT NOT NULL,

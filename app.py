@@ -21,6 +21,8 @@ from xp_import import parse_xp_statement
 from xp_positions import parse_xp_positions
 from investment_news import ResearchError, research_assets
 from market_quotes import MarketQuotes
+from cdi import CDIBenchmark
+from weekly import WeeklyError, weekly_context, saved_weekly_report, save_weekly_report, generate_weekly_report
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -33,6 +35,7 @@ STATIC_FILES = {
     "/xp-positions.js": (BASE_DIR / "static" / "xp-positions.js", "text/javascript; charset=utf-8"),
     "/investments.js": (BASE_DIR / "static" / "investments.js", "text/javascript; charset=utf-8"),
     "/news.js": (BASE_DIR / "static" / "news.js", "text/javascript; charset=utf-8"),
+    "/weekly.js": (BASE_DIR / "static" / "weekly.js", "text/javascript; charset=utf-8"),
     "/charts.js": (BASE_DIR / "static" / "charts.js", "text/javascript; charset=utf-8"),
     "/categories.js": (BASE_DIR / "static" / "categories.js", "text/javascript; charset=utf-8"),
     "/manual-card.js": (BASE_DIR / "static" / "manual-card.js", "text/javascript; charset=utf-8"),
@@ -47,6 +50,8 @@ class FinanceHTTPServer(ThreadingHTTPServer):
         self.auth = ChatGPTAuth(BASE_DIR / "data" / "chatgpt-auth.json")
         self.market = MarketQuotes(store, store.path.parent / "brapi-token")
         self.market.start()
+        self.cdi = CDIBenchmark(store)
+        self.cdi.start()
 
 
 class FinanceHandler(BaseHTTPRequestHandler):
@@ -85,6 +90,8 @@ class FinanceHandler(BaseHTTPRequestHandler):
         except CategorizationError as exc:
             self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
         except ResearchError as exc:
+            self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
+        except WeeklyError as exc:
             self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
         except NotFoundError as exc:
             self._json(HTTPStatus.NOT_FOUND, {"error": str(exc)})
@@ -186,6 +193,18 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if path == API_PREFIX + "/investments/market-returns":
             self._json(HTTPStatus.OK, self.server.market.overview())
             return
+        if path == API_PREFIX + "/investments/cdi":
+            raw_months = query.get("months", ["6"])[0]
+            if not raw_months.isdecimal():
+                raise ValidationError("Escolha 1, 3, 6 ou 12 meses para o CDI.")
+            self._json(HTTPStatus.OK, self.server.cdi.overview(int(raw_months)))
+            return
+        if path == API_PREFIX + "/weekly-summary":
+            context = weekly_context(self.server.store, self._scope(query))
+            self._json(HTTPStatus.OK, {"period": {key: value for key, value in context.items() if key != "signature"},
+                                       "report": saved_weekly_report(self.server.store, context),
+                                       "chatgpt_connected": self.server.auth.status()["connected"]})
+            return
         if path == API_PREFIX + "/investments/news":
             self._json(HTTPStatus.OK, {**self.server.store.investment_news(),
                                        "chatgpt_connected": self.server.auth.status()["connected"]})
@@ -282,6 +301,19 @@ class FinanceHandler(BaseHTTPRequestHandler):
             generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
             self.server.store.save_investment_news(context, report, generated_at, model)
             self._json(HTTPStatus.OK, {**self.server.store.investment_news(),
+                                       "chatgpt_connected": True})
+            return
+        if path == API_PREFIX + "/weekly-summary":
+            data = self._read_json()
+            scope = validate_scope(data.get("scope", "personal"), allow_all=True)
+            context = weekly_context(self.server.store, scope)
+            if not context["current_total_cents"]:
+                raise ValidationError("Ainda não há gastos registrados na última semana concluída.")
+            token, model = self.server.auth.luna_credentials()
+            report = generate_weekly_report(context, token, model)
+            save_weekly_report(self.server.store, context, report)
+            self._json(HTTPStatus.OK, {"period": {key: value for key, value in context.items() if key != "signature"},
+                                       "report": saved_weekly_report(self.server.store, context),
                                        "chatgpt_connected": True})
             return
         if path == API_PREFIX + "/imports/preview":

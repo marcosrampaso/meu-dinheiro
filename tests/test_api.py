@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from app import FinanceHandler
+from cdi import CDIBenchmark
 from chatgpt_auth import ChatGPTAuth
 from finance import FinanceStore
 
@@ -40,6 +41,7 @@ class ApiTests(unittest.TestCase):
         self.store = FinanceStore(Path(self.directory.name) / "test.db")
         self.server = SimpleNamespace(store=self.store, server_port=8765)
         self.server.auth = ChatGPTAuth(Path(self.directory.name) / "chatgpt-auth.json")
+        self.server.cdi = CDIBenchmark(self.store)
 
     def tearDown(self):
         self.directory.cleanup()
@@ -93,6 +95,33 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(status, 403)
         status, _ = self.call_api("/api/v1/summary?month=2026-10", headers={"Host": "other.example"})
         self.assertEqual(status, 403)
+
+    def test_cdi_and_weekly_read_endpoints(self):
+        self.store.save_market_quotes([{"source": "bcb", "identifier": "12", "quote_date": "2026-10-09",
+                                        "price": "0.05", "checked_at": "2026-10-09T12:00:00+00:00"}])
+        status, cdi = self.call_api("/api/v1/investments/cdi?months=12")
+        self.assertEqual(status, 200)
+        self.assertEqual(cdi["source_url"].startswith("https://www3.bcb.gov.br/"), True)
+        self.assertEqual(self.call_api("/api/v1/investments/cdi?months=2")[0], 400)
+        status, weekly = self.call_api("/api/v1/weekly-summary?scope=personal")
+        self.assertEqual(status, 200)
+        self.assertIn("categories", weekly["period"])
+        self.assertEqual(self.call_api("/api/v1/weekly-summary?scope=invalid")[0], 400)
+
+    def test_weekly_generation_is_on_demand_and_cached(self):
+        self.store.add({"kind": "expense", "description": "Exemplo", "amount": "10,00",
+                        "category": "Mercado", "occurred_on": "2026-10-06"})
+        status, initial = self.call_api("/api/v1/weekly-summary")
+        self.assertEqual(status, 200)
+        self.assertIsNone(initial["report"])
+        with patch.object(self.server.auth, "luna_credentials", return_value=("test-token", "gpt-6-luna")), \
+             patch("app.generate_weekly_report", return_value={"headline": "Mercado liderou",
+                  "insights": ["Mercado concentrou os gastos.", "Revise a próxima semana."]}) as generate:
+            status, response = self.call_api("/api/v1/weekly-summary", "POST", {"scope": "personal"})
+        self.assertEqual(status, 200)
+        self.assertEqual(response["report"]["headline"], "Mercado liderou")
+        generate.assert_called_once()
+        self.assertIsNotNone(self.call_api("/api/v1/weekly-summary")[1]["report"])
 
     def test_xp_import_preview_and_commit_keep_cash_flow_separate(self):
         payload = {"filename": "xp.csv", "content": XP_CSV}

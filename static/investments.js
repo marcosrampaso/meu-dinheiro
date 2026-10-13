@@ -8,6 +8,77 @@ const financesView = document.querySelector("#finances-view");
 const investmentsView = document.querySelector("#investments-view");
 const newsView = document.querySelector("#news-view");
 let investmentRequestId = 0;
+let cdiRequestId = 0;
+let cdiInitialRetries = 0;
+const cdiPercent = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+
+function drawCDI(data) {
+  const target = document.querySelector("#cdi-chart");
+  const total = document.querySelector("#cdi-total");
+  const note = document.querySelector("#cdi-note");
+  const source = '<a href="https://www3.bcb.gov.br/sgspub/consultarvalores/consultarValoresSeries.do?method=consultarSeries&amp;series=12" target="_blank" rel="noopener noreferrer">Banco Central, série 12</a>';
+  if (!data.points.length) {
+    total.textContent = "—";
+    emptyChart(target, data.error ? "Não foi possível consultar o CDI." : "Buscando taxas do CDI...");
+    chartInsight("cdi-insight", data.error || "Aguardando dados publicados pelo Banco Central.");
+    note.innerHTML = `Fonte: ${source}. Acumulado composto por dia útil, antes de impostos e taxas.`;
+    return;
+  }
+  total.textContent = `+${cdiPercent.format(data.cumulative_percent)}%`;
+  const points = data.points;
+  const upper = Math.max(0.1, data.cumulative_percent * 1.16);
+  const first = new Date(data.starts_on + "T12:00:00").getTime();
+  const last = new Date(data.latest_on + "T12:00:00").getTime();
+  const x = row => 78 + ((new Date(row.date + "T12:00:00").getTime() - first) / Math.max(1, last - first)) * 542;
+  const y = row => 205 - row.cumulative_percent / upper * 177;
+  const svg = chartSvg("CDI acumulado de " + formatDate(data.starts_on) + " a " + formatDate(data.latest_on));
+  for (let step = 0; step <= 4; step++) {
+    const value = upper * (4 - step) / 4;
+    const position = 28 + 177 * step / 4;
+    svg.append(svgNode("line", { x1: 78, x2: 620, y1: position, y2: position, class: "chart-grid-line" }));
+    svg.append(svgNode("text", { x: 70, y: position + 4, "text-anchor": "end", class: "chart-axis-text" },
+      cdiPercent.format(value) + "%"));
+  }
+  svg.append(svgNode("path", {
+    d: points.map((row, index) => `${index ? "L" : "M"}${x(row).toFixed(1)},${y(row).toFixed(1)}`).join(" "),
+    fill: "none", stroke: "#5a67f2", "stroke-width": 4,
+    "stroke-linecap": "round", "stroke-linejoin": "round", class: "chart-line"
+  }));
+  const stride = Math.max(1, Math.ceil((points.length - 1) / 18));
+  points.forEach((row, index) => {
+    if (index !== 0 && index !== points.length - 1 && index % stride !== 0) return;
+    const message = `${formatDate(row.date)} · CDI acumulado: ${cdiPercent.format(row.cumulative_percent)}%`;
+    const marker = svgNode("circle", { cx: x(row), cy: y(row), r: index === points.length - 1 ? 6 : 4,
+      fill: "#5a67f2", stroke: "white", "stroke-width": 2, class: "chart-point" });
+    interactiveMark(marker, message, "cdi-insight");
+    marker.append(svgNode("title", {}, message));
+    svg.append(marker);
+  });
+  const labels = [points[0], points[Math.floor((points.length - 1) / 2)], points[points.length - 1]];
+  labels.forEach((row, index) => svg.append(svgNode("text", { x: x(row), y: 234,
+    "text-anchor": ["start", "middle", "end"][index], class: "chart-axis-text" }, formatDate(row.date))));
+  target.replaceChildren(svg);
+  chartInsight("cdi-insight", `CDI acumulado: ${cdiPercent.format(data.cumulative_percent)}% de ${formatDate(data.starts_on)} até ${formatDate(data.latest_on)}.`);
+  note.innerHTML = `Fonte: ${source}. Acumulado composto por dia útil, antes de impostos e taxas. Último dado: ${formatDate(data.latest_on)}.${data.stale ? " Dados publicados há mais de 7 dias." : ""}${data.error ? " Atualização indisponível; exibindo dados salvos." : ""}`;
+}
+
+async function refreshCDI() {
+  if (investmentsView.hidden) return;
+  const requestId = ++cdiRequestId;
+  const months = document.querySelector("#cdi-months").value;
+  try {
+    const data = await request(`/investments/cdi?months=${months}`);
+    if (requestId !== cdiRequestId || months !== document.querySelector("#cdi-months").value) return;
+    drawCDI(data);
+    if (!data.points.length && !data.checked_at && !data.error && cdiInitialRetries++ < 3) {
+      window.setTimeout(refreshCDI, 5000);
+    }
+  } catch (error) {
+    if (requestId !== cdiRequestId) return;
+    emptyChart(document.querySelector("#cdi-chart"), "Não foi possível carregar o CDI.");
+    chartInsight("cdi-insight", error.message);
+  }
+}
 
 function setArea(area) {
   const showInvestments = area === "investments";
@@ -21,7 +92,7 @@ function setArea(area) {
   financesTab.tabIndex = showInvestments || showNews ? -1 : 0;
   investmentsTab.tabIndex = showInvestments ? 0 : -1;
   newsTab.tabIndex = showNews ? 0 : -1;
-  if (showInvestments) refreshInvestments();
+  if (showInvestments) { refreshInvestments(); refreshCDI(); }
   if (showNews) document.dispatchEvent(new Event("news-view-resume"));
 }
 
@@ -340,7 +411,9 @@ async function refreshInvestments() {
 investmentMonth.value = todayLocal().slice(0, 7);
 investmentMonth.addEventListener("change", refreshInvestments);
 investmentMonths.addEventListener("change", refreshInvestments);
+document.querySelector("#cdi-months").addEventListener("change", refreshCDI);
 document.addEventListener("investment-data-change", refreshInvestments);
 document.addEventListener("finance-view-resume", refreshInvestments);
 window.setInterval(refreshMarketReturns, 5 * 60 * 1000);
+window.setInterval(refreshCDI, 5 * 60 * 1000);
 syncAreaFromHash();
