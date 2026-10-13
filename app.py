@@ -20,6 +20,7 @@ from importers import (account_balance_from_csv, account_daily_balances_from_csv
 from xp_import import parse_xp_statement
 from xp_positions import parse_xp_positions
 from investment_news import ResearchError, research_assets
+from market_quotes import MarketQuotes
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -44,6 +45,8 @@ class FinanceHTTPServer(ThreadingHTTPServer):
         super().__init__(address, FinanceHandler)
         self.store = store
         self.auth = ChatGPTAuth(BASE_DIR / "data" / "chatgpt-auth.json")
+        self.market = MarketQuotes(store, store.path.parent / "brapi-token")
+        self.market.start()
 
 
 class FinanceHandler(BaseHTTPRequestHandler):
@@ -180,6 +183,9 @@ class FinanceHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.OK, self.server.store.investment_overview(
                 self._month(query), int(raw_months)))
             return
+        if path == API_PREFIX + "/investments/market-returns":
+            self._json(HTTPStatus.OK, self.server.market.overview())
+            return
         if path == API_PREFIX + "/investments/news":
             self._json(HTTPStatus.OK, {**self.server.store.investment_news(),
                                        "chatgpt_connected": self.server.auth.status()["connected"]})
@@ -261,6 +267,11 @@ class FinanceHandler(BaseHTTPRequestHandler):
             data = self._read_json(3_000_000)
             snapshot = parse_xp_positions(data.get("filename"), data.get("content_base64"))
             self._json(HTTPStatus.CREATED, self.server.store.import_xp_positions(snapshot))
+            self.server.market.wake()
+            return
+        if path == API_PREFIX + "/investments/brapi-token":
+            self.server.market.save_token(self._read_json().get("token"))
+            self._json(HTTPStatus.OK, {"configured": True})
             return
         if path == API_PREFIX + "/investments/news":
             context = self.server.store.investment_news_context()
@@ -331,6 +342,10 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if not self._require_same_origin():
             return
         path, _ = self._route()
+        if path == API_PREFIX + "/investments/brapi-token":
+            self.server.market.delete_token()
+            self._json(HTTPStatus.OK, {"configured": False})
+            return
         transaction_id = self._transaction_id(path)
         if transaction_id is None:
             self._json(HTTPStatus.NOT_FOUND, {"error": "Rota não encontrada."})

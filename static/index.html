@@ -176,6 +176,16 @@
           <p id="investment-return-note" class="panel-intro">Importe uma posição detalhada para comparar custo e valor atual.</p>
           <div id="investment-return-chart" aria-label="Gráfico de rendimento por ativo"></div>
         </section>
+        <section class="panel investment-returns" aria-labelledby="market-returns-title">
+          <div class="panel-header"><div><p class="eyebrow">COTAÇÕES PÚBLICAS</p><h2 id="market-returns-title">Rendimento estimado atualizado</h2></div><strong id="market-return-total">—</strong></div>
+          <p id="market-return-note" class="panel-intro">Aguardando consulta de cotas e preços de mercado.</p>
+          <div id="market-return-chart" aria-label="Gráfico de rendimento estimado por ativo" aria-live="polite"></div>
+          <div class="market-token-box">
+            <p>ABCD11 e EFGH11 usam a <a href="https://brapi.dev/" target="_blank" rel="noopener noreferrer">brapi.dev</a>. Crie uma conta gratuita e insira o token aqui. Ele fica somente neste computador.</p>
+            <form id="brapi-token-form"><label>Token da brapi<input id="brapi-token-input" type="password" autocomplete="off" placeholder="Cole seu token" required></label><div class="form-actions"><button class="secondary-button" type="submit">Salvar token</button><button id="brapi-token-delete" class="text-button" type="button" hidden>Remover token</button><span id="brapi-token-state"></span></div></form>
+            <div id="brapi-token-status" class="import-status" role="status" aria-live="polite"></div>
+          </div>
+        </section>
         <section class="charts-section" aria-labelledby="investment-charts-title">
           <div class="charts-heading"><div><p class="eyebrow">EVOLUÇÃO</p><h2 id="investment-charts-title">Aportes ao longo do tempo</h2><p>Gráficos montados a partir dos CSVs da XP salvos neste computador.</p></div></div>
           <div class="charts-grid">

@@ -203,6 +203,112 @@ function renderInvestmentReturns(position) {
   }
 }
 
+function renderMarketReturns(data) {
+  const target = document.querySelector("#market-return-chart");
+  const total = document.querySelector("#market-return-total");
+  const note = document.querySelector("#market-return-note");
+  target.replaceChildren();
+  document.querySelector("#brapi-token-state").textContent = data.brapi_token_configured ? "Token salvo neste computador" : "Token ainda não informado";
+  document.querySelector("#brapi-token-delete").hidden = !data.brapi_token_configured;
+  if (!data.as_of) {
+    total.textContent = "—";
+    note.textContent = "Importe uma posição detalhada da XP para acompanhar os ativos.";
+    return;
+  }
+  const displayedGain = asset => asset.gain_cents === null
+    ? asset.snapshot_value_cents - asset.cost_cents : asset.gain_cents;
+  const maxAbs = Math.max(1, ...data.assets.map(asset => Math.abs(displayedGain(asset))));
+  if (data.complete) {
+    const gain = data.estimated_gain_cents;
+    total.textContent = `${gain < 0 ? "−" : "+"}${money.format(Math.abs(gain) / 100)}`;
+    total.classList.toggle("negative", gain < 0);
+  } else {
+    total.textContent = "Parcial";
+    total.classList.remove("negative");
+  }
+  note.textContent = `Posição base de ${formatDate(data.as_of)}. Barras sem cotação nova mostram o valor da posição XP. Consulta automática a cada 3 horas enquanto o servidor estiver aberto${data.checked_at ? ` · última tentativa ${new Date(data.checked_at).toLocaleString("pt-BR")}` : " · primeira consulta em andamento"}. Valores estimados pressupõem posições sem novas compras ou vendas; proventos, taxas e impostos não entram.`;
+  for (const asset of data.assets) {
+    const row = document.createElement("div");
+    row.className = `market-return-row${asset.gain_cents === null ? " baseline" : ""}`;
+    const heading = document.createElement("div");
+    heading.className = "market-return-heading";
+    const name = document.createElement("strong");
+    name.textContent = asset.name;
+    const value = document.createElement("b");
+    {
+      const gain = displayedGain(asset);
+      const percent = asset.cost_cents ? gain / asset.cost_cents * 100 : 0;
+      value.textContent = `${gain < 0 ? "−" : "+"}${money.format(Math.abs(gain) / 100)} (${percent < 0 ? "−" : "+"}${Math.abs(percent).toFixed(2).replace(".", ",")}%)${asset.gain_cents === null ? " · XP" : ""}`;
+      value.className = gain < 0 ? "return-loss" : "return-gain";
+    }
+    heading.append(name, value);
+    row.append(heading);
+    {
+      const gain = displayedGain(asset);
+      const track = document.createElement("div");
+      track.className = "return-track";
+      const zero = document.createElement("span");
+      zero.className = "return-zero";
+      const bar = document.createElement("span");
+      bar.className = `return-bar ${gain < 0 ? "loss" : "gain"}`;
+      bar.style.width = `${Math.max(gain === 0 ? 0 : 1, Math.abs(gain) / maxAbs * 45)}%`;
+      bar.style.left = gain < 0 ? `${50 - Math.abs(gain) / maxAbs * 45}%` : "50%";
+      track.append(zero, bar);
+      row.append(track);
+    }
+    const detail = document.createElement("small");
+    detail.textContent = `${asset.quote_date ? `Cotação ${formatDate(asset.quote_date)} · valor estimado ${money.format(asset.estimated_value_cents / 100)} · ` : `Posição XP ${formatDate(data.as_of)} · aguardando nova cotação · `}${asset.status}`;
+    if (asset.source_url) {
+      const link = document.createElement("a");
+      link.href = asset.source_url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = asset.source === "cvm" ? "Fonte: CVM" : "Fonte: brapi";
+      detail.append(" · ", link);
+    }
+    row.append(detail);
+    target.append(row);
+  }
+}
+
+async function refreshMarketReturns() {
+  if (investmentsView.hidden) return;
+  try {
+    renderMarketReturns(await request("/investments/market-returns"));
+  } catch (error) {
+    document.querySelector("#market-return-note").textContent = error.message;
+  }
+}
+
+document.querySelector("#brapi-token-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  const input = document.querySelector("#brapi-token-input");
+  const status = document.querySelector("#brapi-token-status");
+  try {
+    await request("/investments/brapi-token", { method: "POST", body: JSON.stringify({ token: input.value.trim() }) });
+    input.value = "";
+    status.textContent = "Token salvo. A consulta das cotações começou.";
+    status.classList.remove("error");
+    await refreshMarketReturns();
+  } catch (error) {
+    status.textContent = error.message;
+    status.classList.add("error");
+  }
+});
+
+document.querySelector("#brapi-token-delete").addEventListener("click", async () => {
+  const status = document.querySelector("#brapi-token-status");
+  try {
+    await request("/investments/brapi-token", { method: "DELETE" });
+    status.textContent = "Token removido deste computador.";
+    status.classList.remove("error");
+    await refreshMarketReturns();
+  } catch (error) {
+    status.textContent = error.message;
+    status.classList.add("error");
+  }
+});
+
 async function refreshInvestments() {
   if (investmentsView.hidden) return;
   const requestId = ++investmentRequestId;
@@ -216,6 +322,7 @@ async function refreshInvestments() {
     document.querySelector("#investment-matched").textContent = `${data.matched_count} PIX`;
     document.querySelector("#investment-matched-amount").textContent = `${money.format(data.matched_cents / 100)} no período`;
     renderInvestmentPosition(data.position);
+    void refreshMarketReturns();
     drawBars(document.querySelector("#investment-deposits-chart"), data.months,
       "Aportes por mês na XP", [{ key: "deposits_cents", label: "Aportes", color: "#00a87b" }],
       "investment-deposits-insight");
@@ -235,4 +342,5 @@ investmentMonth.addEventListener("change", refreshInvestments);
 investmentMonths.addEventListener("change", refreshInvestments);
 document.addEventListener("investment-data-change", refreshInvestments);
 document.addEventListener("finance-view-resume", refreshInvestments);
+window.setInterval(refreshMarketReturns, 5 * 60 * 1000);
 syncAreaFromHash();

@@ -209,6 +209,16 @@ class FinanceStore:
                 )
             """)
             connection.execute("""
+                CREATE TABLE IF NOT EXISTS market_quotes (
+                    source TEXT NOT NULL,
+                    identifier TEXT NOT NULL,
+                    quote_date TEXT NOT NULL,
+                    price TEXT NOT NULL,
+                    checked_at TEXT NOT NULL,
+                    PRIMARY KEY (source, identifier, quote_date)
+                )
+            """)
+            connection.execute("""
                 CREATE TABLE IF NOT EXISTS investment_news (
                     signature TEXT PRIMARY KEY,
                     as_of TEXT NOT NULL,
@@ -782,6 +792,36 @@ class FinanceStore:
                 "movement_count": len(movements),
                 "movements": list(reversed(movements[-60:])),
                 "position": position, "position_history": snapshots}
+
+    def latest_investment_position(self) -> dict | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM investment_snapshots ORDER BY as_of DESC LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return None
+            position = dict(row)
+            position["assets"] = [dict(asset) for asset in connection.execute("""
+                SELECT name, category, value_cents, cost_cents, quantity
+                FROM investment_positions WHERE as_of = ? ORDER BY value_cents DESC, name
+            """, (position["as_of"],))]
+            return position
+
+    def save_market_quotes(self, quotes: list[dict]) -> None:
+        with self._connect() as connection:
+            connection.executemany("""
+                INSERT INTO market_quotes (source, identifier, quote_date, price, checked_at)
+                VALUES (:source, :identifier, :quote_date, :price, :checked_at)
+                ON CONFLICT(source, identifier, quote_date) DO UPDATE SET
+                    price = excluded.price, checked_at = excluded.checked_at
+            """, quotes)
+
+    def market_quotes(self, source: str, identifier: str) -> list[dict]:
+        with self._connect() as connection:
+            return [dict(row) for row in connection.execute("""
+                SELECT quote_date, price, checked_at FROM market_quotes
+                WHERE source = ? AND identifier = ? ORDER BY quote_date DESC
+            """, (source, identifier))]
 
     def investment_news_context(self) -> dict | None:
         """Return asset names only; amounts and account details never enter research prompts."""
