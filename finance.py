@@ -331,6 +331,12 @@ class FinanceStore:
                     starts_month TEXT NOT NULL
                 )
             """)
+            connection.execute("""CREATE TABLE IF NOT EXISTS plan_history_reviews (
+                scope TEXT PRIMARY KEY CHECK (scope IN ('personal','business')),
+                roles_json TEXT NOT NULL,
+                income_cents INTEGER CHECK (income_cents >= 0),
+                buffer_percent INTEGER NOT NULL CHECK (buffer_percent BETWEEN 0 AND 50),
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS reserve_plans (
                     scope TEXT PRIMARY KEY CHECK (scope IN ('personal', 'business')),
@@ -559,9 +565,10 @@ class FinanceStore:
         scope = validate_scope(scope, allow_all=True)
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM transactions WHERE occurred_on >= ? AND occurred_on < ? "
+                "SELECT * FROM transactions WHERE (invoice_month = ? OR "
+                "(invoice_month IS NULL AND occurred_on >= ? AND occurred_on < ?)) "
                 "AND (? = 'all' OR scope = ?) ORDER BY occurred_on DESC, id DESC",
-                (month + "-01", _next_month(month) + "-01", scope, scope),
+                (month, month + "-01", _next_month(month) + "-01", scope, scope),
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -715,14 +722,15 @@ class FinanceStore:
                 (first_day, last_day, scope, scope),
             )]
             category_rows = [dict(row) for row in connection.execute("""
-                SELECT substr(occurred_on, 1, 7) AS month, category,
+                SELECT COALESCE(invoice_month, substr(occurred_on, 1, 7)) AS month, category,
                        SUM(amount_cents) AS amount_cents
                 FROM transactions
                 WHERE kind = 'expense' AND excluded = 0 AND category != 'Pagamento de fatura'
-                  AND occurred_on >= ? AND occurred_on < ?
+                  AND COALESCE(invoice_month, substr(occurred_on, 1, 7)) >= ?
+                  AND COALESCE(invoice_month, substr(occurred_on, 1, 7)) <= ?
                   AND (? = 'all' OR scope = ?)
                 GROUP BY month, category ORDER BY month, amount_cents DESC, category
-            """, (first_day, last_day, scope, scope))]
+            """, (month_list[0], end_month, scope, scope))]
         invoices_by_month: dict[str, dict] = {}
         for invoice in self.invoice_history(scope):
             month = invoice["invoice_month"]
@@ -1119,14 +1127,12 @@ class FinanceStore:
             raise ValidationError("Selecione até 40 compras por vez.")
         if payment_type not in ("all", "account", "credit"):
             raise ValidationError("Tipo de compra inválido.")
-        start = month + "-01" if month else None
-        end = _next_month(month) + "-01" if month else None
         conditions = ("kind = 'expense' AND excluded = 0 AND category = 'Importado' "
                       "AND (? = 'all' OR scope = ?) "
-                      "AND (? IS NULL OR (occurred_on >= ? AND occurred_on < ?)) "
+                      "AND (? IS NULL OR COALESCE(invoice_month, substr(occurred_on, 1, 7)) = ?) "
                       "AND (? = 'all' OR (? = 'account' AND invoice_month IS NULL) "
                       "OR (? = 'credit' AND invoice_month IS NOT NULL))")
-        params = (scope, scope, month, start, end, payment_type, payment_type, payment_type)
+        params = (scope, scope, month, month, payment_type, payment_type, payment_type)
         with self._connect() as connection:
             count = connection.execute(f"SELECT COUNT(*) FROM transactions WHERE {conditions}", params).fetchone()[0]
             rows = connection.execute(
@@ -1139,8 +1145,6 @@ class FinanceStore:
     def uncategorized_breakdown(self, month: str | None = None) -> dict:
         if month is not None:
             month = validate_month(month)
-        start = month + "-01" if month else None
-        end = _next_month(month) + "-01" if month else None
         result = {scope: {"account": 0, "credit": 0} for scope in ("personal", "business")}
         with self._connect() as connection:
             rows = connection.execute("""
@@ -1148,9 +1152,9 @@ class FinanceStore:
                     COUNT(*) AS count
                 FROM transactions
                 WHERE kind = 'expense' AND excluded = 0 AND category = 'Importado'
-                    AND (? IS NULL OR (occurred_on >= ? AND occurred_on < ?))
+                    AND (? IS NULL OR COALESCE(invoice_month, substr(occurred_on, 1, 7)) = ?)
                 GROUP BY scope, payment_type
-            """, (month, start, end)).fetchall()
+            """, (month, month)).fetchall()
         for row in rows:
             result[row["scope"]][row["payment_type"]] = row["count"]
         return result
@@ -1207,17 +1211,15 @@ class FinanceStore:
         scope = validate_scope(scope, allow_all=True)
         if month is not None:
             month = validate_month(month)
-        start = month + "-01" if month else None
-        end = _next_month(month) + "-01" if month else None
         with self._connect() as connection:
             rows = connection.execute("""
                 SELECT category, SUM(amount_cents) AS amount_cents
                 FROM transactions
                 WHERE kind = 'expense' AND excluded = 0 AND category != 'Pagamento de fatura'
                   AND (? = 'all' OR scope = ?)
-                  AND (? IS NULL OR (occurred_on >= ? AND occurred_on < ?))
+                  AND (? IS NULL OR COALESCE(invoice_month, substr(occurred_on, 1, 7)) = ?)
                 GROUP BY category ORDER BY amount_cents DESC, category
-            """, (scope, scope, month, start, end)).fetchall()
+            """, (scope, scope, month, month)).fetchall()
         categories = [dict(row) for row in rows]
         return {"scope": scope, "month": month,
                 "purchase_total_cents": sum(row["amount_cents"] for row in categories),

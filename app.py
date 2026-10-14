@@ -34,6 +34,7 @@ from pluggy_inter import PluggyInter
 from local_auth import LocalAuth, LocalAuthError, SESSION_SECONDS
 from webhook_client import WebhookClient, RelayError
 from reserve_plan import reserve_overview, preview_reserve, save_reserve, delete_reserve
+from plan_insights import history_insights, preview_history, save_history_review
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -64,6 +65,9 @@ API_PREFIX = "/api/v1"
 
 
 class FinanceHTTPServer(ThreadingHTTPServer):
+    # Browsers fetch many scripts together; allow room for parallel connections.
+    request_queue_size = 64
+
     def __init__(self, address: tuple[str, int], store: FinanceStore):
         self.local_auth = LocalAuth(BASE_DIR / "touchid.swift", store.path.parent)
         super().__init__(address, FinanceHandler)
@@ -108,9 +112,10 @@ class FinanceHandler(BaseHTTPRequestHandler):
                 return
             path = urlsplit(self.path).path
             if path.startswith(API_PREFIX) and path not in (
-                API_PREFIX + "/local-auth/status", API_PREFIX + "/local-auth/unlock"
+                API_PREFIX + "/local-auth/status", API_PREFIX + "/local-auth/unlock",
+                API_PREFIX + "/local-auth/password-login"
             ) and not self.server.local_auth.valid(self.headers.get("X-Local-Session")):
-                self._json(HTTPStatus.UNAUTHORIZED, {"error": "Desbloqueie com Touch ID para continuar."})
+                self._json(HTTPStatus.UNAUTHORIZED, {"error": "Desbloqueie o aplicativo para continuar."})
                 return
             action()
         except ValidationError as exc:
@@ -203,8 +208,14 @@ class FinanceHandler(BaseHTTPRequestHandler):
     def _get(self) -> None:
         path, query = self._route()
         if path == API_PREFIX + "/local-auth/status":
-            self._json(HTTPStatus.OK, {"touch_id_available": True,
-                                       "session_seconds": SESSION_SECONDS})
+            status_method = getattr(self.server.local_auth, "status", None)
+            self._json(HTTPStatus.OK, status_method() if status_method else {
+                "touch_id_available": True, "password_configured": False,
+                "session_seconds": SESSION_SECONDS})
+            return
+        if path == API_PREFIX + "/local-auth/session":
+            self._json(HTTPStatus.OK, self.server.local_auth.principal(
+                self.headers.get("X-Local-Session")))
             return
         if path == "/auth/callback":
             try:
@@ -254,6 +265,12 @@ class FinanceHandler(BaseHTTPRequestHandler):
             return
         if path == API_PREFIX + "/plans/reserve":
             self._json(HTTPStatus.OK, reserve_overview(self.server.store, self._scope(query, allow_all=False)))
+            return
+        if path == API_PREFIX + "/plans/history":
+            months = query.get("months", ["6"])[0]
+            if months not in ("3", "6"):
+                raise ValidationError("Escolha os últimos 3 ou 6 meses encerrados.")
+            self._json(HTTPStatus.OK, history_insights(self.server.store, self._scope(query, allow_all=False), int(months)))
             return
         if path == API_PREFIX + "/investments/overview":
             raw_months = query.get("months", ["6"])[0]
@@ -336,6 +353,17 @@ class FinanceHandler(BaseHTTPRequestHandler):
             self._read_json()
             self._json(HTTPStatus.OK, {"token": self.server.local_auth.unlock(),
                                        "session_seconds": SESSION_SECONDS})
+            return
+        if path == API_PREFIX + "/local-auth/password-login":
+            data = self._read_json()
+            self._json(HTTPStatus.OK, {"token": self.server.local_auth.unlock_password(data.get("password")),
+                                       "session_seconds": SESSION_SECONDS})
+            return
+        if path == API_PREFIX + "/local-auth/password":
+            data = self._read_json()
+            self._json(HTTPStatus.OK, self.server.local_auth.configure_password(
+                self.headers.get("X-Local-Session"), data.get("password"),
+                data.get("current_password"), remove=data.get("remove") is True))
             return
         if path == API_PREFIX + "/local-auth/lock":
             self._read_json()
@@ -476,6 +504,12 @@ class FinanceHandler(BaseHTTPRequestHandler):
             return
         if path == API_PREFIX + "/plans/reserve/preview":
             self._json(HTTPStatus.OK, preview_reserve(self.server.store, self._read_json()))
+            return
+        if path == API_PREFIX + "/plans/history/preview":
+            self._json(HTTPStatus.OK, preview_history(self.server.store, self._read_json()))
+            return
+        if path == API_PREFIX + "/plans/history/review":
+            self._json(HTTPStatus.OK, save_history_review(self.server.store, self._read_json()))
             return
         if path == API_PREFIX + "/plans/reserve":
             self._json(HTTPStatus.OK, save_reserve(self.server.store, self._read_json()))

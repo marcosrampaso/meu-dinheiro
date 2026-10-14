@@ -7,6 +7,8 @@ const includeUncategorized = document.querySelector("#include-uncategorized");
 const form = document.querySelector("#transaction-form");
 const notice = document.querySelector("#notice");
 let editingId = null;
+const transactionCategoryFilter = document.querySelector("#transaction-category-filter");
+let transactionMonthItems = [];
 
 function categoryLabel(category) {
   return category === "Importado" ? "Sem categoria" : category;
@@ -110,13 +112,25 @@ function renderPurchaseCategories(data) {
 }
 
 function renderTransactions(items) {
+  transactionMonthItems = items;
+  const selected = transactionCategoryFilter.value;
+  transactionCategoryFilter.replaceChildren(new Option("Todas as categorias", ""));
+  for (const category of [...new Set(items.map(item => item.category))].sort()) {
+    transactionCategoryFilter.add(new Option(categoryLabel(category), category));
+  }
+  if (selected && ![...transactionCategoryFilter.options].some(option => option.value === selected)) {
+    transactionCategoryFilter.add(new Option(categoryLabel(selected), selected));
+  }
+  transactionCategoryFilter.value = selected;
+  const totalCount = items.length;
+  if (selected) items = items.filter(item => item.category === selected);
   const list = document.querySelector("#transactions-list");
   list.replaceChildren();
-  document.querySelector("#count").textContent = `${items.length} ${items.length === 1 ? "lançamento" : "lançamentos"}`;
+  document.querySelector("#count").textContent = `${items.length} ${items.length === 1 ? "lançamento" : "lançamentos"}${selected ? ` de ${totalCount}` : ""}`;
   if (items.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty";
-    empty.textContent = "Ainda não há lançamentos neste mês. Adicione o primeiro ao lado.";
+    empty.textContent = selected ? "Nenhum lançamento desta categoria no mês selecionado." : "Ainda não há lançamentos neste mês. Adicione o primeiro ao lado.";
     list.append(empty);
     return;
   }
@@ -166,6 +180,8 @@ function renderTransactions(items) {
     list.append(row);
   }
 }
+
+transactionCategoryFilter.addEventListener("change", () => renderTransactions(transactionMonthItems));
 
 async function refresh({ notify = true } = {}) {
   try {

@@ -47,6 +47,7 @@ function fillReservePlan(data) {
   document.querySelector("#plan-save").textContent = data.configured ? "Salvar ajustes do plano" : "Criar meu plano";
   document.querySelector("#plan-delete").hidden = !data.configured;
   reservePlanDirty = false;
+  document.dispatchEvent(new Event("reserve-plan-loaded"));
 }
 
 function drawReserveProjection(data) {
@@ -207,3 +208,242 @@ document.querySelector("#plan-delete").addEventListener("click", async () => {
 document.addEventListener("plans-view-resume", refreshReservePlan);
 document.addEventListener("finance-data-change", refreshReservePlan);
 if (!plansView.hidden) void refreshReservePlan();
+
+// Historical suggestions stay separate from the saved reserve until explicitly applied.
+const planHistoryForm = document.querySelector("#plan-history-form");
+let planHistoryAnalysis = null;
+let planHistoryCalculation = null;
+let planHistoryRequestId = 0;
+let planHistoryPreviewTimer = null;
+
+function planHistoryStatus(message, error = false, preview = false) {
+  const target = document.querySelector(preview ? "#history-preview-status" : "#plan-history-status");
+  target.textContent = message;
+  target.classList.toggle("error", error);
+}
+
+function planHistoryPayload() {
+  const roles = {};
+  for (const select of document.querySelectorAll("#history-categories select")) roles[select.dataset.category] = select.value;
+  return { scope: reservePlanScope.value, months: Number(document.querySelector("#plan-history-window").value),
+    signature: planHistoryAnalysis.signature, roles,
+    monthly_income: document.querySelector("#history-confirmed-income").value,
+    buffer_percent: Number(document.querySelector("#history-buffer").value),
+    target_months: Number(reservePlanForm.elements.target_months.value),
+    reserved_balance: reservePlanForm.elements.reserved_balance.value || "0",
+    acknowledged: document.querySelector("#history-acknowledged").checked };
+}
+
+function planHistoryButtons() {
+  const ready = Boolean(planHistoryCalculation && planHistoryCalculation.essential_cents > 0 &&
+    document.querySelector("#history-acknowledged").checked);
+  document.querySelector("#history-apply-base").disabled = !ready;
+  for (const button of document.querySelectorAll("#history-scenarios button")) {
+    button.disabled = !ready || planHistoryCalculation.income_cents === null;
+  }
+}
+
+function planHistoryElement(tag, text, className = "") {
+  const element = document.createElement(tag);
+  element.textContent = text;
+  if (className) element.className = className;
+  return element;
+}
+
+function renderPlanHistoryCalculation(result) {
+  planHistoryCalculation = result;
+  document.querySelector("#history-essential").textContent = `Essenciais: ${money.format(result.essential_cents / 100)} / mês`;
+  document.querySelector("#history-flexible").textContent = `Flexíveis: ${money.format(result.flexible_cents / 100)} / mês`;
+  document.querySelector("#history-unresolved").textContent = `A revisar: ${money.format(result.unresolved_cents / 100)} / mês`;
+  for (const select of document.querySelectorAll("#history-categories select")) select.closest(".history-category").className = `history-category ${select.value}`;
+  document.querySelector("#history-scenarios-note").textContent = result.note;
+  const cards = document.querySelector("#history-scenarios");
+  cards.replaceChildren();
+  for (const scenario of result.scenarios) {
+    const card = planHistoryElement("article", "", "history-scenario");
+    card.append(planHistoryElement("h4", scenario.title));
+    card.append(planHistoryElement("strong", scenario.contribution_cents === null ? "Confirme a renda" : money.format(scenario.contribution_cents / 100)));
+    card.append(planHistoryElement("p", "Aporte mensal possível neste cenário"));
+    card.append(planHistoryElement("p", scenario.reduction_percent
+      ? `Reduzir ${scenario.reduction_percent}% dos flexíveis: economia de ${money.format(scenario.saving_cents / 100)} / mês.`
+      : "Manter a média de todos os gastos observados."));
+    if (scenario.margin_cents !== null) card.append(planHistoryElement("p", `Margem separada para imprevistos: ${money.format(scenario.margin_cents / 100)} / mês.`));
+    if (scenario.surplus_cents !== null && scenario.surplus_cents < 0) card.append(planHistoryElement("p", `Faltariam ${money.format(-scenario.surplus_cents / 100)} para cobrir os gastos e a margem. Revise o cenário.`));
+    const duration = planHistoryElement("p", result.essential_cents === 0 ? "Revise os essenciais para estimar a meta." :
+      scenario.contributions_needed === null ? "Sem previsão de conclusão com este aporte." : `${scenario.contributions_needed} aportes até a meta, sem supor rendimentos.`);
+    duration.setAttribute("data-private-value", "");
+    card.append(duration);
+    const button = planHistoryElement("button", "Usar base e este aporte", "secondary-button");
+    button.type = "button";
+    button.dataset.scenario = scenario.id;
+    button.addEventListener("click", () => applyPlanHistory(scenario.id));
+    card.append(button);
+    cards.append(card);
+  }
+  planHistoryButtons();
+}
+
+async function previewPlanHistory() {
+  window.clearTimeout(planHistoryPreviewTimer);
+  if (!planHistoryAnalysis || planHistoryForm.hidden || !planHistoryForm.checkValidity()) return;
+  const requestId = ++planHistoryRequestId;
+  const payload = planHistoryPayload();
+  planHistoryCalculation = null;
+  planHistoryButtons();
+  try {
+    const result = await request("/plans/history/preview", { method: "POST", body: JSON.stringify(payload) });
+    if (requestId !== planHistoryRequestId || payload.scope !== reservePlanScope.value) return;
+    renderPlanHistoryCalculation(result);
+    planHistoryStatus(result.income_cents === null ? "Confirme a renda para comparar os aportes. Você já pode revisar os essenciais." :
+      "Cenários atualizados. Revise a base antes de aplicar ao plano.", false, true);
+  } catch (error) {
+    if (requestId !== planHistoryRequestId) return;
+    document.querySelector("#history-scenarios").replaceChildren();
+    for (const id of ["history-essential", "history-flexible", "history-unresolved"]) document.getElementById(id).textContent = "—";
+    planHistoryStatus(error.message, true, true);
+  }
+}
+
+async function refreshPlanHistory() {
+  if (plansView.hidden) return;
+  window.clearTimeout(planHistoryPreviewTimer);
+  const requestId = ++planHistoryRequestId;
+  const scope = reservePlanScope.value;
+  const months = Number(document.querySelector("#plan-history-window").value);
+  planHistoryAnalysis = null;
+  planHistoryCalculation = null;
+  document.querySelector("#plan-history-content").hidden = true;
+  planHistoryButtons();
+  planHistoryStatus("Analisando os gastos registrados neste Mac…");
+  try {
+    const data = await request(`/plans/history?scope=${scope}&months=${months}`);
+    if (requestId !== planHistoryRequestId || scope !== reservePlanScope.value) return;
+    planHistoryAnalysis = data;
+    const amountInput = cents => cents === null ? "" : (cents / 100).toFixed(2).replace(".", ",");
+    document.querySelector("#history-average").textContent = data.average_spending_cents === null ? "Sem base" : money.format(data.average_spending_cents / 100);
+    document.querySelector("#history-income").textContent = data.observed_income_cents === null ? "Sem base" : money.format(data.observed_income_cents / 100);
+    document.querySelector("#history-base").textContent = `${data.base_months.length} de ${months} meses · ${data.quality === "documented" ? "cobertura documentada" : "base provisória"}`;
+    document.querySelector("#history-months").replaceChildren(...data.monthly.map(month => {
+      const chip = planHistoryElement("div", "", `history-month-chip ${month.coverage}`);
+      chip.append(planHistoryElement("strong", month.month.split("-").reverse().join("/")), planHistoryElement("span",
+        month.coverage === "documented" ? "Cobertura documentada" : month.coverage === "partial" ? "Cobertura parcial" : "Sem cobertura"));
+      chip.title = [...month.accounts.map(row => `${row.source}: ${row.complete ? "extrato completo" : "faltam dias de extrato"}`),
+        ...month.cards.map(row => `${row.source}: ${row.registered ? "fatura registrada" : "fatura ausente"}`)].join(" · ");
+      return chip;
+    }));
+    document.querySelector("#history-quality-summary").textContent = data.quality === "documented" ? "Conferir cobertura e limites da análise" : "Base provisória: confira o que falta no histórico";
+    document.querySelector("#history-quality").open = data.quality !== "documented";
+    document.querySelector("#history-warnings").replaceChildren(...data.warnings.map(text => planHistoryElement("li", text)));
+    document.querySelector("#history-method").textContent = `${data.note} Meses usados: ${data.base_months.join(", ") || "nenhum"}. Meses sem dados não viram zero.`;
+    const categories = document.querySelector("#history-categories");
+    categories.replaceChildren();
+    const max = Math.max(1, ...data.categories.map(row => row.average_cents));
+    for (const [index, row] of data.categories.entries()) {
+      const item = planHistoryElement("div", "", `history-category ${row.role}`);
+      const name = planHistoryElement("div", "");
+      name.append(planHistoryElement("strong", row.category), planHistoryElement("small", row.reviewed ? "Sua última revisão" : "Papel sugerido · confirme"));
+      const amount = planHistoryElement("div", "");
+      amount.append(planHistoryElement("strong", `${money.format(row.average_cents / 100)} / mês`),
+        planHistoryElement("small", `De ${money.format(row.minimum_cents / 100)} a ${money.format(row.maximum_cents / 100)} · presente em ${row.months_present} meses`));
+      const track = planHistoryElement("div", "", "bar-track");
+      const fill = planHistoryElement("div", "", "bar-fill");
+      fill.style.width = `${row.average_cents / max * 100}%`;
+      track.append(fill); amount.append(track);
+      const label = planHistoryElement("label", "Papel no plano");
+      const select = document.createElement("select");
+      select.id = `history-category-${index}`;
+      select.dataset.category = row.category;
+      select.setAttribute("aria-label", `Papel de ${row.category} no plano`);
+      for (const [value, text] of [["essential", "Essencial"], ["flexible", "Flexível"], ["review", "A revisar"]]) select.add(new Option(text, value));
+      select.value = row.role;
+      label.append(select); item.append(name, amount, label); categories.append(item);
+    }
+    document.querySelector("#history-confirmed-income").value = amountInput(data.preferences.income_cents);
+    document.querySelector("#history-buffer").value = data.preferences.buffer_percent;
+    document.querySelector("#history-acknowledged").checked = false;
+    document.querySelector("#history-use-income").disabled = !data.observed_income_cents;
+    planHistoryForm.hidden = !data.categories.length;
+    document.querySelector("#history-empty").hidden = Boolean(data.categories.length);
+    const recurring = document.querySelector("#history-recurring");
+    recurring.replaceChildren(...data.recurring.map(row => {
+      const item = planHistoryElement("div", "", "history-evidence-row");
+      const title = planHistoryElement("div", row.description);
+      title.append(planHistoryElement("small", `${row.category} · ${row.months_present} meses · ${row.note}`));
+      item.append(title, planHistoryElement("strong", money.format(row.typical_cents / 100))); return item;
+    }));
+    if (!data.recurring.length) recurring.append(planHistoryElement("p", "Ainda não há padrões suficientes para sugerir cobranças recorrentes.", "chart-note"));
+    const future = document.querySelector("#history-future");
+    future.replaceChildren(...data.future_invoices.map(row => {
+      const item = planHistoryElement("div", "", "history-evidence-row");
+      const title = planHistoryElement("div", row.month.split("-").reverse().join("/"));
+      title.append(planHistoryElement("small", `${money.format(row.pending_cents / 100)} em compras pendentes`));
+      item.append(title, planHistoryElement("strong", money.format(row.amount_cents / 100))); return item;
+    }));
+    if (!data.future_invoices.length) future.append(planHistoryElement("p", "Nenhuma fatura deste mês ou posterior registrada.", "chart-note"));
+    document.querySelector("#plan-history-content").hidden = false;
+    planHistoryStatus("Histórico analisado. Revise as sugestões; nenhum valor do plano foi alterado.");
+    void previewPlanHistory();
+  } catch (error) {
+    if (requestId === planHistoryRequestId) planHistoryStatus(error.message, true);
+  }
+}
+
+async function applyPlanHistory(scenarioId = null) {
+  if (!planHistoryCalculation || !document.querySelector("#history-acknowledged").checked) return;
+  window.clearTimeout(planHistoryPreviewTimer);
+  const requestId = ++planHistoryRequestId;
+  const payload = planHistoryPayload();
+  planHistoryCalculation = null;
+  planHistoryButtons();
+  try {
+    const result = await request("/plans/history/review", { method: "POST", body: JSON.stringify(payload) });
+    if (requestId !== planHistoryRequestId || payload.scope !== reservePlanScope.value) return;
+    planHistoryAnalysis = result.analysis;
+    renderPlanHistoryCalculation(result);
+    reservePlanForm.elements.essential_expenses.value = (result.essential_cents / 100).toFixed(2).replace(".", ",");
+    if (scenarioId) {
+      const scenario = result.scenarios.find(row => row.id === scenarioId);
+      reservePlanForm.elements.monthly_contribution.value = (scenario.contribution_cents / 100).toFixed(2).replace(".", ",");
+    }
+    reservePlanForm.elements.essential_expenses.dispatchEvent(new Event("input", { bubbles: true }));
+    void previewReservePlan();
+    planHistoryStatus("Revisão guardada e rascunho preenchido. Confira o plano abaixo e salve quando estiver pronto.", false, true);
+  } catch (error) {
+    if (requestId === planHistoryRequestId) planHistoryStatus(error.message, true, true);
+  }
+}
+
+function schedulePlanHistoryPreview() {
+  if (!planHistoryAnalysis) return;
+  planHistoryRequestId += 1;
+  planHistoryCalculation = null;
+  planHistoryButtons();
+  document.querySelector("#history-scenarios").replaceChildren();
+  window.clearTimeout(planHistoryPreviewTimer);
+  planHistoryPreviewTimer = window.setTimeout(previewPlanHistory, 400);
+}
+planHistoryForm.addEventListener("submit", event => event.preventDefault());
+planHistoryForm.addEventListener("input", event => {
+  if (event.target.id === "history-acknowledged") { planHistoryButtons(); return; }
+  // Any change after a confirmation requires another review.
+  document.querySelector("#history-acknowledged").checked = false;
+  schedulePlanHistoryPreview();
+});
+document.querySelector("#history-use-income").addEventListener("click", () => {
+  if (!planHistoryAnalysis?.observed_income_cents) return;
+  document.querySelector("#history-confirmed-income").value = (planHistoryAnalysis.observed_income_cents / 100).toFixed(2).replace(".", ",");
+  document.querySelector("#history-confirmed-income").dispatchEvent(new Event("input", { bubbles: true }));
+});
+document.querySelector("#history-apply-base").addEventListener("click", () => applyPlanHistory());
+document.querySelector("#plan-history-refresh").addEventListener("click", refreshPlanHistory);
+document.querySelector("#plan-history-window").addEventListener("change", refreshPlanHistory);
+reservePlanScope.addEventListener("change", refreshPlanHistory);
+reservePlanForm.addEventListener("input", event => {
+  if (["reserved_balance", "target_months"].includes(event.target.name)) schedulePlanHistoryPreview();
+});
+document.addEventListener("plans-view-resume", refreshPlanHistory);
+document.addEventListener("reserve-plan-loaded", schedulePlanHistoryPreview);
+document.addEventListener("finance-data-change", () => {
+  if (!plansView.hidden) planHistoryStatus("Os lançamentos mudaram. Atualize a análise antes de aplicar novas sugestões.");
+});
+if (!plansView.hidden) void refreshPlanHistory();

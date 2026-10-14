@@ -32,8 +32,12 @@
       <span class="brand-mark" aria-hidden="true">◈</span>
       <p class="eyebrow">ACESSO LOCAL</p>
       <h1 id="local-auth-title">Meu Dinheiro</h1>
-      <p>Use o Touch ID deste Mac para abrir seus dados financeiros.</p>
+      <p id="local-auth-description">Use o Touch ID deste Mac ou sua senha local para abrir seus dados financeiros.</p>
       <button id="local-auth-button" class="primary-button" type="button">Desbloquear com Touch ID</button>
+      <form id="local-password-login" hidden>
+        <label>Senha local<input name="password" type="password" autocomplete="current-password" maxlength="256" required></label>
+        <button id="local-password-login-button" class="secondary-button" type="submit">Entrar com senha</button>
+      </form>
       <p id="local-auth-status" class="import-status" role="status" aria-live="polite"></p>
     </div>
   </section>
@@ -92,7 +96,7 @@
         <div class="charts-grid">
           <article class="panel chart-panel" aria-labelledby="cashflow-title"><div class="panel-header"><div><h3 id="cashflow-title">Entradas e saídas</h3><p>Movimento das contas, sem transferências internas</p></div></div><div id="cashflow-chart" class="chart-area" aria-live="polite"></div><div id="cashflow-insight" class="chart-insight" aria-live="polite">Passe o mouse ou selecione uma barra para ver o valor.</div><div class="chart-legend"><span><i class="legend-income"></i>Entradas</span><span><i class="legend-expense"></i>Saídas</span></div><p id="cashflow-note" class="chart-note"></p></article>
           <article class="panel chart-panel" aria-labelledby="invoice-chart-title"><div class="panel-header"><div><h3 id="invoice-chart-title">Faturas do cartão</h3><p>Total por mês da fatura registrada</p></div></div><div id="invoice-chart" class="chart-area" aria-live="polite"></div><div id="invoice-insight" class="chart-insight" aria-live="polite">Passe o mouse ou selecione uma barra para ver o valor.</div><p id="invoice-chart-note" class="chart-note"></p></article>
-          <article class="panel chart-panel chart-wide" aria-labelledby="category-month-chart-title"><div class="panel-header"><div><h3 id="category-month-chart-title">Gastos por categoria em cada mês</h3><p>Selecione uma cor para destacar a categoria nos meses</p></div><label class="checkbox-line"><input id="include-uncategorized" type="checkbox">Mostrar gastos sem categoria</label></div><div id="category-month-chart" class="category-month-chart" aria-live="polite"></div><div id="category-month-legend" class="chart-legend"></div><div id="category-month-insight" class="chart-insight" aria-live="polite">Toque em uma categoria ou em uma parte da barra para explorar os gastos.</div><p id="category-month-coverage" class="chart-note"></p><p class="chart-note">Débito e cartão pela data da compra. Aplicações, pagamentos de fatura e transferências ficam fora.</p></article>
+          <article class="panel chart-panel chart-wide" aria-labelledby="category-month-chart-title"><div class="panel-header"><div><h3 id="category-month-chart-title">Gastos por categoria em cada mês</h3><p>Selecione uma cor para destacar a categoria nos meses</p></div><label class="checkbox-line"><input id="include-uncategorized" type="checkbox">Mostrar gastos sem categoria</label></div><div id="category-month-chart" class="category-month-chart" aria-live="polite"></div><div id="category-month-legend" class="chart-legend"></div><div id="category-month-insight" class="chart-insight" aria-live="polite">Toque em uma categoria ou em uma parte da barra para explorar os gastos.</div><p id="category-month-coverage" class="chart-note"></p><p class="chart-note">Débito pela data do lançamento e cartão pelo mês da fatura. Aplicações, pagamentos de fatura e transferências ficam fora.</p></article>
           <article class="panel chart-panel chart-wide" aria-labelledby="balance-chart-title"><div class="panel-header"><div><h3 id="balance-chart-title">Saldo das contas</h3><p>Saldo registrado nos dias disponíveis em cada extrato</p></div></div><div id="balance-chart" class="chart-area" aria-live="polite"></div><div id="balance-insight" class="chart-insight" aria-live="polite">Passe o mouse ou selecione um ponto para ver o saldo do dia.</div><div id="balance-chart-legend" class="chart-legend"></div><p id="balance-chart-note" class="chart-note"></p></article>
         </div>
       </section>
@@ -111,7 +115,7 @@
       <div class="planning-grid">
         <section class="panel planning-panel" aria-labelledby="budget-title">
           <div class="panel-header"><div><p class="eyebrow">PLANEJAMENTO</p><h2 id="budget-title">Orçamento por categoria</h2></div></div>
-          <p class="panel-intro">Limites mensais recorrentes. Compras no débito e cartão entram pela data da compra, sem pagamentos de fatura.</p>
+          <p class="panel-intro">Limites mensais recorrentes. Débito pela data do lançamento e cartão pelo mês da fatura, sem somar pagamentos de fatura novamente.</p>
           <form id="budget-form" class="planning-form"><label>Área<select name="scope"><option value="personal">Pessoal</option><option value="business">PJ</option></select></label><label>Categoria<input name="category" list="budget-categories" maxlength="60" required placeholder="Ex.: Alimentação"></label><datalist id="budget-categories"></datalist><label>Limite mensal (R$)<input name="limit" inputmode="decimal" required placeholder="0,00"></label><button class="secondary-button" type="submit">Salvar limite</button></form>
           <div id="budget-status" class="import-status" role="status" aria-live="polite"></div>
           <div id="budget-list" class="budget-list"></div>
@@ -150,7 +154,7 @@
         </section>
 
         <section class="panel categories-panel" aria-labelledby="category-title">
-        <div class="panel-header"><div><p class="eyebrow">PARA ONDE FOI</p><h2 id="category-title">Compras por categoria</h2><p class="category-caption">Débito e compras do cartão pela data da compra; sem pagamentos de fatura.</p></div><div class="category-view-controls"><label for="purchase-period">Período<select id="purchase-period"><option value="month">Mês selecionado</option><option value="all">Todo o histórico</option></select></label><strong id="purchase-total" class="category-total">R$ 0,00</strong></div></div>
+        <div class="panel-header"><div><p class="eyebrow">PARA ONDE FOI</p><h2 id="category-title">Compras por categoria</h2><p class="category-caption">Débito pela data do lançamento e cartão pelo mês da fatura; sem somar pagamentos de fatura novamente.</p></div><div class="category-view-controls"><label for="purchase-period">Período<select id="purchase-period"><option value="month">Mês selecionado</option><option value="all">Todo o histórico</option></select></label><strong id="purchase-total" class="category-total">R$ 0,00</strong></div></div>
           <p id="category-coverage" class="category-caption" aria-live="polite"></p>
           <div id="categories-list" class="categories-list"></div>
           <div class="ai-categories" aria-labelledby="ai-categories-title">
@@ -183,7 +187,7 @@
           <div class="form-actions"><button id="preview-button" class="primary-button" type="submit">Ver prévia</button><button id="import-button" class="secondary-button" type="button" disabled>Importar lançamentos</button></div>
           <div id="import-preview" class="import-preview" hidden></div>
         </form>
-        <p class="import-tip">Pagamentos de fatura entram nas saídas do mês; compras do cartão aparecem separadamente, pela data da compra. Transferências entre suas contas, aplicações e cashback não contam como receita ou gasto. Confira a prévia antes de importar.</p>
+        <p class="import-tip">Pagamentos de fatura entram nas saídas de caixa; compras do cartão aparecem separadamente, pelo mês da fatura. Transferências entre suas contas, aplicações e cashback não contam como receita ou gasto. Confira a prévia antes de importar.</p>
       </section>
 
       <section id="manual-card" class="panel manual-card-panel" aria-labelledby="manual-card-title">
@@ -203,7 +207,7 @@
           <label>Categoria<input name="category" maxlength="60" list="categories" placeholder="Ex.: Mercado" required></label>
           <div class="form-actions"><button id="save-card-purchase" class="primary-button" type="submit">Adicionar à fatura</button></div>
         </form>
-        <p class="import-tip">A compra entra na fatura escolhida e nos gastos por categoria na data da compra. O saldo bancário muda apenas quando o pagamento aparecer no extrato da conta. Se importar a fatura em PDF depois, confira possíveis lançamentos repetidos.</p>
+        <p class="import-tip">A compra entra na fatura escolhida e nos gastos por categoria no mês dessa fatura. O saldo bancário muda apenas quando o pagamento aparecer no extrato da conta. Se importar a fatura em PDF depois, confira possíveis lançamentos repetidos.</p>
       </section>
 
       <section class="panel invoice-panel" aria-labelledby="invoice-title">
@@ -213,6 +217,7 @@
 
       <section class="panel transactions-panel" aria-labelledby="transactions-title">
         <div class="panel-header"><div><p class="eyebrow">HISTÓRICO</p><h2 id="transactions-title">Lançamentos do mês</h2></div><span id="count" class="count">0 lançamentos</span></div>
+        <label class="transaction-category-filter">Filtrar por categoria<select id="transaction-category-filter"><option value="">Todas as categorias</option></select></label>
         <p class="transaction-help">Confirmou no comprovante que um débito foi para a XP ou outra corretora? Use “É investimento” no lançamento para tirá-lo dos gastos.</p>
         <div id="transactions-list" class="transactions-list"></div>
       </section>
@@ -322,6 +327,29 @@
       <section id="plans-view" class="app-view" role="tabpanel" aria-labelledby="plans-tab" hidden>
         <div class="investment-hero"><div><p class="eyebrow">UM PASSO DE CADA VEZ</p><h1>Crie seu plano.</h1><p>Transforme sua reserva de emergência em uma meta que você consegue acompanhar.</p></div><label class="month-picker">Plano de<select id="plan-scope"><option value="personal">Pessoal</option><option value="business">PJ</option></select></label></div>
         <div id="plan-status" class="import-status" role="status" aria-live="polite"></div>
+        <section id="plan-history" class="panel plan-history" aria-labelledby="plan-history-title">
+          <div class="panel-header"><div><p class="eyebrow">SEU HISTÓRICO COMO PONTO DE PARTIDA</p><h2 id="plan-history-title">Um plano que começa com seus gastos.</h2><p>Revise os essenciais e compare formas de chegar à sua reserva.</p></div><div class="history-controls"><label>Histórico<select id="plan-history-window"><option value="3">3 meses encerrados</option><option value="6" selected>6 meses encerrados</option></select></label><button id="plan-history-refresh" class="secondary-button" type="button">Atualizar análise</button></div></div>
+          <div id="plan-history-status" class="import-status" role="status" aria-live="polite"></div>
+          <div id="plan-history-content" hidden>
+            <div class="history-facts"><div><span>Gasto médio observado</span><strong id="history-average">—</strong></div><div><span>Entradas observadas / mês</span><strong id="history-income">—</strong></div><div><span>Base das médias</span><strong id="history-base">—</strong></div></div>
+            <div id="history-months" class="history-months" aria-label="Cobertura mensal do histórico"></div>
+            <details id="history-quality"><summary id="history-quality-summary">Conferir cobertura e limites da análise</summary><ul id="history-warnings"></ul><p id="history-method" class="chart-note"></p></details>
+            <div id="history-empty" class="chart-note" hidden>Importe faturas ou extratos com gastos de meses anteriores. Você também pode montar seu plano manualmente abaixo.</div>
+            <form id="plan-history-form" hidden>
+              <div class="history-review-header"><div><h3>O que faz parte do seu custo de vida?</h3><p class="chart-note">Os papéis sugeridos precisam da sua revisão. “A revisar” continua nos gastos dos cenários, mas fica fora da meta da reserva até você marcá-lo como essencial.</p></div></div>
+              <div id="history-categories" class="history-categories"></div>
+              <div class="history-assumptions"><label>Renda líquida mensal disponível (R$)<input id="history-confirmed-income" inputmode="decimal" placeholder="Confirme sua renda para comparar aportes"><small>Confirme quanto fica disponível para esta área. Entradas observadas podem ser eventuais; transferências PJ/PF não são renda nova.</small></label><label>Margem para imprevistos (% da renda)<input id="history-buffer" type="number" inputmode="decimal" min="0" max="50" step="1" value="10" required><small>Você pode ajustar de 0% a 50%. A margem fica fora do aporte sugerido.</small></label></div>
+              <button id="history-use-income" class="text-button" type="button">Preencher com as entradas observadas para revisão</button>
+              <div class="history-totals"><span id="history-essential">Essenciais: —</span><span id="history-flexible">Flexíveis: —</span><span id="history-unresolved">A revisar: —</span></div>
+              <label class="history-ack"><input id="history-acknowledged" type="checkbox"> Revisei as categorias, a renda e os limites da cobertura. Vou conferir compromissos fora desta base.</label>
+              <div class="form-actions"><button id="history-apply-base" class="secondary-button" type="button" disabled>Usar essenciais no plano</button></div>
+              <p class="chart-note">Aplicar guarda sua revisão local e preenche o rascunho abaixo. Confira a meta e clique em Salvar ajustes / Criar meu plano para guardar o plano.</p>
+              <div id="history-preview-status" class="import-status" role="status" aria-live="polite"></div>
+              <h3>Compare os próximos passos</h3><p id="history-scenarios-note" class="chart-note"></p><div id="history-scenarios" class="history-scenarios"></div>
+            </form>
+            <div class="history-evidence"><details><summary>Cobranças que podem se repetir</summary><p class="chart-note">Uma cobrança por mês, em pelo menos três meses, com valores próximos. Podem ser compras ocasionais ou parcelas. Elas já estão incluídas nas categorias acima.</p><div id="history-recurring"></div></details><details><summary>Faturas deste mês e dos próximos já registradas</summary><p class="chart-note">São valores registrados, sujeitos a alterações. A média histórica e a fatura não são somadas como duas despesas no cenário mensal.</p><div id="history-future"></div></details></div>
+          </div>
+        </section>
         <div class="reserve-layout">
           <section class="panel reserve-builder" aria-labelledby="reserve-builder-title">
             <div class="panel-header"><div><p class="eyebrow">SEU PONTO DE PARTIDA</p><h2 id="reserve-builder-title">Reserva de emergência</h2></div><span id="plan-save-state" class="portfolio-result-source">Novo plano</span></div>
@@ -352,9 +380,19 @@
       <section id="settings-view" class="app-view" role="tabpanel" aria-labelledby="settings-tab" hidden>
         <div class="investment-hero"><div><p class="eyebrow">ACESSOS</p><h1>Configurações</h1><p>Gerencie as conexões usadas pela categorização, notícias e investimentos.</p></div></div>
         <div class="settings-grid">
+          <section class="panel settings-wide" aria-labelledby="local-password-title">
+            <div class="panel-header"><div><p class="eyebrow">PROTEÇÃO LOCAL</p><h2 id="local-password-title">Acesso ao aplicativo</h2></div><span id="local-password-state"></span></div>
+            <p>Cadastre uma senha própria deste aplicativo como alternativa ao Touch ID. Existe somente seu usuário local; conexões bancárias e login do ChatGPT são acessos separados.</p>
+            <form id="local-password-settings">
+              <div class="form-row"><label>Senha atual<input name="current_password" type="password" autocomplete="current-password" maxlength="256" placeholder="Obrigatória ao entrar por senha"></label><label>Nova senha local<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="256" placeholder="Pelo menos 12 caracteres"></label><label>Confirme a nova senha<input name="password_confirmation" type="password" autocomplete="new-password" minlength="12" maxlength="256"></label></div>
+              <p class="chart-note">O primeiro cadastro exige acesso com Touch ID. Ao entrar por senha, informe a senha atual para alterá-la ou removê-la. Cada acesso dura cinco minutos. Não há recuperação por e-mail; o Touch ID permite definir uma nova senha.</p>
+              <div class="form-actions"><button id="local-password-save" class="primary-button" type="submit">Salvar senha local</button><button id="local-password-remove" class="text-button" type="button" hidden>Remover senha local</button></div>
+            </form>
+            <p id="local-password-settings-status" class="import-status" role="status" aria-live="polite"></p>
+          </section>
           <section class="panel settings-wide" aria-labelledby="webhooks-title">
             <div class="panel-header"><div><p class="eyebrow">ATUALIZAÇÕES AUTOMÁTICAS</p><h2 id="webhooks-title">Avisos da Pluggy</h2></div><span id="webhook-state"></span></div>
-            <p class="panel-intro">Pluggy → receptor na Railway → este Mac. O receptor guarda os avisos enquanto o app está fechado. Ao abrir e desbloquear com Touch ID, o app consulta os dados novos de XP e Inter.</p>
+            <p class="panel-intro">Pluggy → receptor na Railway → este Mac. O receptor guarda os avisos enquanto o app está fechado. Ao abrir e desbloquear o app, ele consulta os dados novos de XP e Inter.</p>
             <details><summary>1. Preparar a Railway</summary><p class="chart-note">Publique a pasta <strong>relay</strong> do repositório e adicione PostgreSQL. Gere as chaves abaixo e copie as três variáveis para o receptor. A DATABASE_URL vem do PostgreSQL da Railway.</p><button id="webhook-setup" class="secondary-button" type="button">Gerar / renovar chaves do receptor</button><div id="webhook-setup-output" hidden><p class="chart-note">Guarde estas chaves nas Variables da Railway. Elas ficam visíveis somente nesta sessão. Renovar exige atualizar também o receptor e o registro na Pluggy.</p><textarea id="webhook-variables" rows="5" readonly aria-label="Variáveis privadas para a Railway"></textarea><button id="webhook-hide-keys" class="text-button" type="button">Ocultar chaves</button></div></details>
             <form id="webhook-form" class="planning-form"><label>2. URL pública da Railway<input name="url" type="url" placeholder="https://seu-receptor.up.railway.app" required></label><label>Chave de leitura<input name="read_token" type="password" autocomplete="off" placeholder="Deixe vazio se gerou as chaves neste Mac"></label><label class="webhook-checkbox"><input name="enabled" type="checkbox"> Sincronizar ao receber avisos, com o app desbloqueado</label><button class="secondary-button" type="submit">Salvar receptor</button></form>
             <div class="pluggy-actions"><button id="webhook-register" class="primary-button" type="button" disabled>3. Registrar avisos na Pluggy</button><button id="webhook-check" class="secondary-button" type="button" disabled>Conferir avisos agora</button><button id="webhook-disable" class="text-button" type="button" hidden>Desconectar receptor deste Mac</button></div>

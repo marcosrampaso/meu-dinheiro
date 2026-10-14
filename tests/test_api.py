@@ -89,6 +89,9 @@ class ApiTests(unittest.TestCase):
         return status, content
 
     def test_touch_id_gate_covers_reads_and_writes(self):
+        self.assertEqual(self.call_api('/api/v1/plans/history',authenticated=False)[0],401)
+        self.assertEqual(self.call_api('/api/v1/plans/history/preview','POST',{},authenticated=False)[0],401)
+        self.assertEqual(self.call_api('/api/v1/plans/history/review','POST',{},authenticated=False)[0],401)
         self.assertEqual(self.call_api('/api/v1/plans/reserve',authenticated=False)[0],401)
         self.assertEqual(self.call_api('/api/v1/plans/reserve','POST',{},authenticated=False)[0],401)
         self.assertEqual(self.call_api('/api/v1/plans/reserve/preview','POST',{},authenticated=False)[0],401)
@@ -215,6 +218,27 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response["report"]["headline"], "Mercado liderou")
         generate.assert_called_once()
         self.assertIsNotNone(self.call_api("/api/v1/weekly-summary")[1]["report"])
+
+    def test_plan_history_api_previews_reviews_and_rejects_stale_or_invalid_scope(self):
+        status, initial = self.call_api('/api/v1/plans/history?months=3')
+        self.assertEqual(status, 200)
+        self.assertIsNone(initial['average_spending_cents'])
+        self.store.add({'kind':'expense','description':'Mercado exemplo','category':'Mercado',
+                        'amount':'20,00','occurred_on':initial['window'][-1]+'-10'})
+        analysis = self.call_api('/api/v1/plans/history?months=3')[1]
+        draft = {'scope':'personal','months':3,'signature':analysis['signature'],
+                 'roles':{'Mercado':'essential'},'monthly_income':'500,00','buffer_percent':10,
+                 'reserved_balance':'0','target_months':3,'acknowledged':True}
+        self.assertEqual(self.call_api('/api/v1/plans/history/preview','POST',draft)[1]['essential_cents'],2000)
+        self.assertIsNone(self.call_api('/api/v1/plans/history?months=3')[1]['preferences']['income_cents'])
+        self.assertEqual(self.call_api('/api/v1/plans/history/review','POST',draft,
+                                      headers={'Origin':'https://other.example'})[0],403)
+        self.assertEqual(self.call_api('/api/v1/plans/history/review','POST',draft)[0],200)
+        self.assertEqual(self.call_api('/api/v1/plans/history?months=3')[1]['preferences']['income_cents'],50000)
+        self.assertFalse(self.call_api('/api/v1/plans/reserve')[1]['configured'])
+        self.assertEqual(self.call_api('/api/v1/plans/history/review','POST',draft)[0],400)
+        self.assertEqual(self.call_api('/api/v1/plans/history?scope=all')[0],400)
+        self.assertEqual(self.call_api('/api/v1/plans/history?months=5')[0],400)
 
     def test_planning_and_performance_routes(self):
         today = date.today().isoformat()

@@ -26,10 +26,10 @@ def budget_overview(store: FinanceStore, month: str, scope: str) -> dict:
         spent = {(row["scope"], row["category"]): row["spent_cents"] for row in connection.execute("""
             SELECT scope, category, SUM(amount_cents) AS spent_cents FROM transactions
             WHERE kind = 'expense' AND excluded = 0 AND category NOT IN (?, ?)
-              AND occurred_on >= ? AND occurred_on < ?
+              AND COALESCE(invoice_month, substr(occurred_on, 1, 7)) = ?
               AND (? = 'all' OR scope = ?)
             GROUP BY scope, category
-        """, (*NON_SPENDING, month + "-01", _month_after(month) + "-01", scope, scope))}
+        """, (*NON_SPENDING, month, scope, scope))}
         custom = [row[0] for row in connection.execute("""
             SELECT DISTINCT category FROM transactions WHERE kind = 'expense' AND excluded = 0
               AND category NOT IN (?, ?) AND (? = 'all' OR scope = ?)

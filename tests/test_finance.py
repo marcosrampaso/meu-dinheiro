@@ -49,6 +49,17 @@ class FinanceStoreTests(unittest.TestCase):
         with self.assertRaises(NotFoundError):
             self.store.get(first["id"])
 
+    def test_installments_with_one_purchase_date_are_distributed_across_invoices(self):
+        for index, month in enumerate(['2026-07','2026-08','2026-09'],1):
+            self.store.add_card_purchase({'bank':'inter','account':'exemplo','scope':'personal',
+                'invoice_month':month,'occurred_on':'2026-07-10','description':f'Compra parcela {index}/3',
+                'amount':'100,00','category':'Outros'})
+        chart = self.store.analytics('2026-09','personal',3)['category_spending']
+        self.assertEqual([row['total_cents'] for row in chart],[10000,10000,10000])
+        self.assertEqual(self.store.purchase_categories('personal')['purchase_total_cents'],30000)
+        self.assertEqual(len(self.store.list_month('2026-07')),1)
+        self.assertEqual(self.store.list_month('2026-09')[0]['occurred_on'],'2026-07-10')
+
     def test_manual_card_purchase_uses_invoice_month_without_changing_cash_flow(self):
         purchase = self.store.add_card_purchase({
             "bank": "inter", "account": "cartão principal", "scope": "personal",
@@ -59,8 +70,8 @@ class FinanceStoreTests(unittest.TestCase):
         self.assertEqual(purchase["invoice_month"], "2026-10")
         self.assertIsNone(purchase["import_key"])
         self.assertEqual(self.store.summary("2026-09")["expense_cents"], 0)
-        self.assertEqual(self.store.summary("2026-09")["card_purchases_cents"], 5000)
-        self.assertEqual(self.store.summary("2026-10")["card_purchases_cents"], 0)
+        self.assertEqual(self.store.summary("2026-09")["card_purchases_cents"], 0)
+        self.assertEqual(self.store.summary("2026-10")["card_purchases_cents"], 5000)
         self.assertEqual(self.store.invoice_history()[0]["expense_cents"], 5000)
         self.assertEqual(self.store.analytics("2026-10")["invoices"][-1]["total_cents"], 5000)
         updated = self.store.update(purchase["id"], transaction(
@@ -198,12 +209,13 @@ class FinanceStoreTests(unittest.TestCase):
                                    scope="business"))
         self.store.add(transaction(description="Fatura", category="Pagamento de fatura",
                                    amount="80,00", excluded=True))
-        self.assertEqual(self.store.purchase_categories("personal", "2026-10")["purchase_total_cents"], 5000)
+        self.assertEqual(self.store.purchase_categories("personal", "2026-10")["purchase_total_cents"], 3000)
+        self.assertEqual(self.store.purchase_categories("personal", "2026-11")["purchase_total_cents"], 2000)
         self.assertEqual(self.store.purchase_categories("personal")["purchase_total_cents"], 10000)
         chart = self.store.analytics("2026-10", "all", 2)["category_spending"]
-        self.assertEqual([row["total_cents"] for row in chart], [5000, 15000])
+        self.assertEqual([row["total_cents"] for row in chart], [5000, 13000])
         self.assertEqual({item["category"]: item["amount_cents"] for item in chart[1]["categories"]},
-                         {"Compras": 10000, "Alimentação": 3000, "Educação": 2000})
+                         {"Compras": 10000, "Alimentação": 3000})
 
     def test_reviewed_categories_include_card_purchases_without_recounting_bill_payment(self):
         account = self.store.add(transaction(category="Importado", amount="30,00"))
@@ -242,11 +254,11 @@ class FinanceStoreTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in self.store.uncategorized_purchases(
             "personal", "2026-10", payment_type="account")[0]], [account["id"]])
         self.assertEqual([row["id"] for row in self.store.uncategorized_purchases(
-            "personal", "2026-10", payment_type="credit")[0]], [card["id"]])
+            "personal", "2026-11", payment_type="credit")[0]], [card["id"]])
         self.assertEqual(self.store.uncategorized_purchases(
             "all", "2026-10", payment_type="account")[1], 2)
         self.assertEqual(self.store.uncategorized_breakdown("2026-10"), {
-            "personal": {"account": 1, "credit": 1},
+            "personal": {"account": 1, "credit": 0},
             "business": {"account": 1, "credit": 0},
         })
         self.store.apply_purchase_categories([{"id": business["id"], "category": "Serviços"}], "business")

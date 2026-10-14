@@ -36,3 +36,7 @@ jobs:
         run: node tests/test_privacy_browser.js
       - name: Criar e acompanhar plano de reserva
         run: node tests/test_plans_browser.js
+      - name: Planejar com histórico e revisar categorias
+        run: node tests/test_plan_history_browser.js
+      - name: Login local por senha
+        run: node tests/test_password_browser.js

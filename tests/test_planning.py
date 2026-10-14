@@ -17,7 +17,7 @@ class PlanningTests(unittest.TestCase):
     def tearDown(self):
         self.directory.cleanup()
 
-    def test_budget_counts_purchases_by_date_and_scope_without_card_payment(self):
+    def test_budget_counts_debit_by_date_and_card_by_invoice_without_card_payment(self):
         save_budget(self.store, {"scope": "personal", "category": "Mercado", "limit": "100,00"})
         for category, scope, amount, excluded in [
             ("Mercado", "personal", "40,00", False),
@@ -31,6 +31,11 @@ class PlanningTests(unittest.TestCase):
         data = budget_overview(self.store, "2026-10", "personal")
         self.assertEqual((data["budgets"][0]["spent_cents"], data["budgets"][0]["limit_cents"]),
                          (4000, 10000))
+        self.store.add_card_purchase({"bank":"inter","account":"exemplo","scope":"personal",
+            "invoice_month":"2026-10","occurred_on":"2026-09-10","description":"Mercado no cartão",
+            "amount":"10,00","category":"Mercado"})
+        self.assertEqual(budget_overview(self.store,"2026-10","personal")["budgets"][0]["spent_cents"],5000)
+        self.assertEqual(budget_overview(self.store,"2026-09","personal")["budgets"][0]["spent_cents"],0)
         delete_budget(self.store, "personal", "Mercado")
         self.assertEqual(budget_overview(self.store, "2026-10", "personal")["budgets"], [])
         with self.assertRaises(ValidationError):

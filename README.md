@@ -4,7 +4,7 @@ Aplicação local de finanças em Python, com tela no navegador e API JSON. Orga
 
 ## Começar
 
-Requer macOS com Touch ID cadastrado, as ferramentas de linha de comando do Xcode (`xcrun swiftc`) e Python 3.10 ou mais recente. A biblioteca `pypdf` já está incluída em `vendor`. O login com ChatGPT usa `PyJWT` e `cryptography` para validar a identidade.
+Para o primeiro acesso, requer macOS com Touch ID cadastrado, as ferramentas de linha de comando do Xcode (`xcrun swiftc`) e Python 3.10 ou mais recente. A biblioteca `pypdf` já está incluída em `vendor`. O login com ChatGPT usa `PyJWT` e `cryptography` para validar a identidade.
 
 ```bash
 python3 -m venv .venv
@@ -20,15 +20,21 @@ Acesse <http://127.0.0.1:8765>. Para usar outra porta ou outro banco SQLite:
 
 O banco padrão fica em `data/financas.db` e é criado na primeira execução. **Bancos, extratos, faturas, senhas e chaves de API não fazem parte do repositório.** Faça backup do banco separadamente. O servidor escuta apenas em `127.0.0.1`.
 
-## Proteção com Touch ID
+## Acesso local: Touch ID e senha
 
-Ao abrir ou atualizar a página, clique em **Desbloquear com Touch ID** e confirme no sensor do Mac. A API financeira só responde depois da aprovação biométrica. A autorização dura cinco minutos a partir da aprovação e fica apenas na memória do navegador e do servidor. Minimizar o navegador ou trocar de aba não encerra a sessão dentro desse prazo; ao voltar depois dos cinco minutos, a página bloqueia e pede Touch ID novamente. **Bloquear** encerra a sessão imediatamente. Fechar ou atualizar a página também exige nova aprovação, pois a autorização não é salva no disco. Não há alternativa por senha do macOS: se o Touch ID não estiver disponível ou a digital for recusada, o acesso continua bloqueado. O aplicativo usa a API LocalAuthentication da Apple; ele não recebe nem armazena sua digital.
+Ao abrir ou atualizar a página, desbloqueie com **Touch ID** ou com a **senha local do aplicativo**, se já estiver cadastrada. A API financeira exige uma sessão aprovada por uma dessas formas. A sessão dura cinco minutos a partir do login e fica apenas na memória do navegador e do servidor. Minimizar ou trocar de aba preserva o acesso nesse prazo. **Bloquear**, fechar ou atualizar a página exige novo login; a sessão também expira no servidor.
 
-O Touch ID protege a **interface e a API local** contra acesso casual com o Mac já desbloqueado. O banco SQLite e as credenciais locais continuam em arquivos no disco, sem criptografia própria; um usuário com acesso à sua sessão do macOS ou um programa malicioso executado nela pode ler esses arquivos diretamente. Para proteger os dados se o Mac for perdido ou roubado, mantenha **FileVault**, senha forte e bloqueio automático do macOS ativados. O servidor local não deve ser exposto à rede.
+Para cadastrar a primeira senha, entre com Touch ID e abra **Configurações → Acesso ao aplicativo**. Use pelo menos 12 caracteres e confirme a nova senha. Ao entrar por senha, informe a senha atual para alterá-la ou removê-la. Uma sessão aprovada por Touch ID pode definir uma nova senha sem a anterior. Não há recuperação por e-mail ou senha do macOS. A remoção fica bloqueada quando o Touch ID está indisponível, para evitar ficar sem acesso.
+
+A senha nunca é gravada em texto: o arquivo privado `data/local-identity.json`, ignorado pelo Git e com permissão `0600`, armazena um hash scrypt (N=32768, r=8, p=1, salt aleatório de 32 bytes), além da identidade local estável. Comparação em tempo constante, tentativas serializadas e espera progressiva a partir de cinco erros reduzem tentativas repetidas; o limite fica na memória deste servidor local e reiniciar o processo o reinicia. Trocar/remover a senha revoga as outras sessões. A identidade e o método de login acompanham cada sessão, preparando a evolução futura. Existe apenas um usuário atual; não há CRUD de usuários, isolamento entre usuários nem contextos fiscais novos nesta versão.
+
+O aplicativo usa LocalAuthentication da Apple e não recebe nem armazena sua digital. Se o Touch ID ficar indisponível, uma senha previamente cadastrada permite continuar acessando. Sem senha cadastrada, o primeiro acesso ainda requer Touch ID.
+
+O login local protege a **interface e a API local** contra acesso casual com o Mac já desbloqueado. O banco SQLite e as credenciais locais continuam em arquivos no disco, sem criptografia própria; um usuário com acesso à sua sessão do macOS ou um programa malicioso executado nela pode ler esses arquivos diretamente. Para proteger os dados se o Mac for perdido ou roubado, mantenha **FileVault**, senha forte e bloqueio automático do macOS ativados. O servidor local não deve ser exposto à rede.
 
 ## Ocultar valores
 
-O botão de olho no topo alterna **Ocultar valores / Mostrar valores** em todas as abas. Esconde quantias, percentuais, quantidades de cotas, dicas dos gráficos e valores digitados nos campos monetários. Os gráficos e o relatório semanal também ficam ocultos para evitar revelar números pelo desenho ou pelo texto livre. A preferência é lembrada neste navegador; atualizações novas continuam ocultas. Ao mostrar novamente, a tela recupera os valores mais recentes sem consultar a API de novo. O botão muda somente a exibição; os registros e cálculos permanecem no aplicativo. Touch ID continua controlando o acesso.
+O botão de olho no topo alterna **Ocultar valores / Mostrar valores** em todas as abas. Esconde quantias, percentuais, quantidades de cotas, dicas dos gráficos e valores digitados nos campos monetários. Os gráficos e o relatório semanal também ficam ocultos para evitar revelar números pelo desenho ou pelo texto livre. A preferência é lembrada neste navegador; atualizações novas continuam ocultas. Ao mostrar novamente, a tela recupera os valores mais recentes sem consultar a API de novo. O botão muda somente a exibição; os registros e cálculos permanecem no aplicativo. O login local continua controlando o acesso.
 
 Na aba Investimentos, **O que seu dinheiro rendeu** destaca ganho/perda em reais e rentabilidade estimada no histórico disponível. O período e a origem aparecem no mesmo quadro; ambos acompanham o histórico escolhido em **Seu rendimento contra o CDI**. Aportes e saques externos são ajustados pelo cálculo existente. CDI ausente não bloqueia o resultado da carteira. Histórico insuficiente ou movimentações pendentes de revisão aparecem como indisponíveis, sem preencher zero.
 
@@ -50,7 +56,7 @@ Na aba Investimentos, **O que seu dinheiro rendeu** destaca ganho/perda em reais
 - Comparação estimada da carteira XP com o CDI quando houver pelo menos duas posições datadas.
 - Cadastro e edição manual de aportes, resgates e patrimônio total da XP por data, com conciliação de aportes que depois aparecem no CSV.
 
-As **saídas das contas** incluem pagamentos de fatura. As compras feitas no cartão aparecem na data da compra e no histórico da fatura, sem serem somadas novamente ao fluxo de caixa. Transferências internas e cashback identificados ficam fora da receita consolidada. Confira as marcações após importar novos formatos de extrato.
+As **saídas das contas** incluem pagamentos de fatura. Nos gráficos, categorias, orçamentos e lançamentos mensais, compras de cartão usam **o mês da fatura** e débitos usam a data do lançamento. Cada parcela fica na fatura correspondente, mesmo que a data original da compra se repita. A data original é preservada e continua visível no lançamento. Compras não são somadas novamente ao fluxo de caixa. Transferências internas e cashback identificados ficam fora da receita consolidada. Em **Lançamentos do mês**, o filtro por categoria permite conferir e editar grupos como **Outros** sem alterar automaticamente nenhuma classificação.
 
 O CSV de conta corrente do Inter traz data, histórico, descrição, valor e saldo, mas não identifica o banco de destino de um PIX. Uma transferência para o próprio nome pode ir para outra conta pessoal ou para uma corretora; por isso o programa não assume que é investimento. Se o extrato trouxer explicitamente **XP Investimentos** ou **Banco XP**, o débito é marcado como transferência para investimento. Um PIX enviado e devolvido no mesmo dia, com mesmo destinatário e valor, fica fora de receitas e gastos. Para lançamentos sem banco de destino, confira o comprovante e use **É investimento** no histórico do mês; o saldo da conta continua vindo do extrato.
 
@@ -153,6 +159,9 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | POST | `/plans/reserve/preview` | Simula o plano sem salvar |
 | POST | `/plans/reserve` | Cria ou atualiza o plano para `personal` ou `business` |
 | DELETE | `/plans/reserve?scope=personal` | Exclui somente o plano; preserva lançamentos e investimentos |
+| GET | `/plans/history?scope=personal&months=6` | Evidências de gastos, cobertura de 3 ou 6 meses encerrados, recorrências e revisão anterior |
+| POST | `/plans/history/preview` | Simula papéis das categorias, renda confirmada, margem e cenários sem salvar |
+| POST | `/plans/history/review` | Guarda a revisão confirmada por área, sem alterar o plano nem transações |
 | GET | `/transactions?month=AAAA-MM&scope=business` | Lista de lançamentos |
 | GET | `/transactions/{id}` | Um lançamento |
 | POST | `/transactions` | Criar lançamento |
@@ -196,6 +205,12 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | POST | `/investments/positions/preview` | Conferir a posição detalhada XLSX da XP (`filename` e `content_base64`) |
 | POST | `/investments/positions` | Salvar ou atualizar a fotografia da carteira na data da planilha |
 | GET | `/categorization/status?scope=personal&month=AAAA-MM&payment_type=account` | Estado da categorização e pendências por conta/cartão e Pessoal/PJ |
+| GET | `/local-auth/status` | Formas de login disponíveis; não contém identidade nem credenciais |
+| POST | `/local-auth/unlock` | Criar sessão mediante Touch ID |
+| POST | `/local-auth/password-login` | Criar sessão mediante senha local já cadastrada |
+| GET | `/local-auth/session` | Identidade e método da sessão atual; exige login |
+| POST | `/local-auth/password` | Cadastrar, alterar ou remover senha local; exige login e mesma origem |
+| POST | `/local-auth/lock` | Revogar a sessão atual |
 | POST | `/auth/chatgpt/start` | Abrir autorização do ChatGPT |
 | GET | `/auth/callback` | Receber o retorno OAuth no servidor local |
 | POST | `/auth/chatgpt/disconnect` | Desconectar o ChatGPT |
@@ -207,6 +222,18 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 As rotas da XP recebem `filename` e `content` do CSV no mesmo JSON. O formato esperado tem as colunas `Data;Hora;Descricao;Valor;Saldo`.
 
 ## Crie seu plano
+
+### Montar a partir dos gastos
+
+O painel **Um plano que começa com seus gastos** analisa os últimos 3 ou 6 meses encerrados. Havendo pelo menos três meses com extratos completos para as fontes conhecidas e faturas registradas, usa esses meses nas médias. Caso contrário, mostra uma base provisória dos meses com gastos observados. Meses ausentes não são tratados como zero; faturas registradas não comprovam fechamento. Compras pendentes, lançamentos excluídos, pagamentos de fatura, transferências internas e movimentos de investimento identificados ficam fora. Médias de despesas são brutas: estornos sem vínculo com uma compra não são abatidos nem viram renda recorrente. O resumo semanal continua usando a data da compra, para descrever os hábitos de cada semana.
+
+Revise o papel de cada categoria: **Essencial**, **Flexível** ou **A revisar**. As sugestões iniciais são apenas uma base editável. Sua revisão fica separada das categorias das compras. Gastos a revisar continuam no custo dos cenários, mas não entram na meta da reserva. As cobranças recorrentes são evidências (um lançamento por mês, em pelo menos três meses, com variação de até 20% entre menor e maior valor em relação à mediana), sem criar contas fixas ou somar novamente os valores. Possíveis parcelamentos pedem revisão do prazo restante. Faturas atuais e futuras registradas aparecem separadamente como compromissos conhecidos.
+
+Confirme a **renda líquida mensal disponível** e ajuste a margem para imprevistos, inicialmente 10% e editável entre 0% e 50%. Entradas do histórico nunca preenchem automaticamente a renda; há um botão para copiá-las para revisão. Transferências PJ/PF não são renda nova. Três cenários comparam manter os gastos, reduzir 10% dos flexíveis ou reduzir 20%. Aporte no cenário é `máximo(0, renda confirmada − média dos gastos + redução dos flexíveis − margem)`. Os cortes são hipóteses, e despesas ausentes ou novos compromissos podem reduzir a sobra real. Não há recomendação automática de ativo nem previsão de rentabilidade.
+
+Marque a confirmação da revisão para **Usar essenciais no plano** ou **Usar base e este aporte**. Isso guarda suas preferências localmente e preenche o rascunho da reserva. Ainda é necessário salvar o plano abaixo. Uma mudança no histórico invalida a revisão antiga; atualize a análise antes de aplicar. Nenhum dado sai deste Mac e nenhuma chamada à IA é feita nesta análise.
+
+### Meta e acompanhamento
 
 Abra **Planos**, escolha Pessoal ou PJ e preencha despesas essenciais mensais, meses de proteção, aporte mensal, saldo já reservado, data de confirmação do saldo e próximo aporte. **Simular** calcula sem salvar; **Criar meu plano / Salvar ajustes** guarda um plano por área no SQLite local. Atualize o saldo manualmente quando ele mudar. O dinheiro reservado é confirmado por você: o app não atribui automaticamente o patrimônio da XP ou os saldos bancários à reserva.
 
