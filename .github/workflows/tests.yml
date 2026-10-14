@@ -28,3 +28,9 @@ jobs:
           node --check static/webhooks.js
       - name: Scripts compartilhados e avisos da Pluggy
         run: node tests/test_browser_scripts.js
+      - name: Dependências do navegador de testes
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Privacidade e layout responsivo
+        run: node tests/test_privacy_browser.js

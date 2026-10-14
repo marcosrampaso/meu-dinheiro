@@ -115,6 +115,13 @@ class ApiTests(unittest.TestCase):
             check.assert_called_once_with(manual=True)
         self.assertEqual(self.call_api('/api/v1/pluggy/webhooks/check','POST',{'manual':'false'})[0],400)
 
+    def test_privacy_assets_are_public_but_financial_data_stays_protected(self):
+        for path in ('/privacy.js','/dashboard.css'):
+            status, content = self.call_api(path, authenticated=False)
+            self.assertEqual(status,200)
+            self.assertTrue(content)
+        self.assertEqual(self.call_api('/api/v1/summary?month=2026-01',authenticated=False)[0],401)
+
     def test_crud_and_summary(self):
         data = {
             "kind": "expense", "description": "Internet", "amount": "89,90",

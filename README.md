@@ -26,6 +26,10 @@ Ao abrir ou atualizar a página, clique em **Desbloquear com Touch ID** e confir
 
 O Touch ID protege a **interface e a API local** contra acesso casual com o Mac já desbloqueado. O banco SQLite e as credenciais locais continuam em arquivos no disco, sem criptografia própria; um usuário com acesso à sua sessão do macOS ou um programa malicioso executado nela pode ler esses arquivos diretamente. Para proteger os dados se o Mac for perdido ou roubado, mantenha **FileVault**, senha forte e bloqueio automático do macOS ativados. O servidor local não deve ser exposto à rede.
 
+## Ocultar valores
+
+O botão de olho no topo alterna **Ocultar valores / Mostrar valores** em todas as abas. Esconde quantias, percentuais, quantidades de cotas, dicas dos gráficos e valores digitados nos campos monetários. Os gráficos e o relatório semanal também ficam ocultos para evitar revelar números pelo desenho ou pelo texto livre. A preferência é lembrada neste navegador; atualizações novas continuam ocultas. Ao mostrar novamente, a tela recupera os valores mais recentes sem consultar a API de novo. O botão muda somente a exibição; os registros e cálculos permanecem no aplicativo. Touch ID continua controlando o acesso.
+
 ## Funcionalidades
 
 - Cadastro, edição e exclusão de receitas e despesas, com valores armazenados em centavos inteiros.
@@ -207,6 +211,14 @@ node --check static/charts.js
 node --check static/categories.js
 node --check static/investments.js
 node --check static/news.js
+```
+
+Para testar a ocultação de valores no navegador, usando somente números fictícios:
+
+```sh
+npm ci
+npx playwright install chromium
+npm test
 ```
 
 O pacote [`pypdf`](https://pypdf.readthedocs.io/) incluído em `vendor` mantém sua licença em [`vendor/PYPDF-LICENSE.txt`](vendor/PYPDF-LICENSE.txt).
