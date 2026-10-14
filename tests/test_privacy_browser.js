@@ -28,6 +28,13 @@ async function seed(page) {
       "card-purchases": "Compras registradas: R$ 980,00", "purchase-total": "R$ 980,00" })) {
       document.getElementById(id).textContent = text;
     }
+    document.querySelector("#portfolio-result-amount").textContent = "+R$ 24,50";
+    document.querySelector("#portfolio-result-percent").textContent = "+1,25%";
+    document.querySelector("#portfolio-result-amount").classList.add("positive");
+    document.querySelector("#portfolio-result-percent").classList.add("positive");
+    document.querySelector("#portfolio-result-period").textContent = "Histórico de 01/01/2026 a 31/01/2026";
+    document.querySelector("#portfolio-result-source").textContent = "Automático · Pluggy";
+    document.querySelector("#portfolio-result-note").textContent = "Dados de demonstração. Resultado com aportes e saques ajustados.";
     document.querySelector("#month").value = "2026-01";
     document.querySelector("#health-badge").textContent = "Dados conferidos";
     document.querySelector("#health-items").innerHTML = '<div class="health-item"><strong>Conta pessoal</strong><p>Extrato atualizado.</p></div><div class="health-item"><strong>Cartão de crédito</strong><p>Compras disponíveis.</p></div>';
@@ -69,6 +76,8 @@ async function main() {
     assert.equal(await page.locator("#cashflow-chart svg").isVisible(), false);
     assert.equal(await page.locator("#privacy-toggle .eye-open").isVisible(), false);
     assert.equal(await page.locator("#privacy-toggle .eye-closed").isVisible(), true);
+    assert.equal(await page.locator("#portfolio-result-amount").textContent(), "R$ ••••");
+    assert.equal(await page.locator("#portfolio-result-percent").textContent(), "••••%");
     // An incoming API render must remain masked and restore the latest value.
     await page.evaluate(() => {
       document.querySelector("#balance").textContent = "R$ 3.210,50";
@@ -106,6 +115,8 @@ async function main() {
     assert.equal(await page.locator("#cashflow-chart svg").isVisible(), true);
     assert.equal(await page.locator("#privacy-toggle .eye-open").isVisible(), true);
     assert.equal(await page.locator("#privacy-toggle .eye-closed").isVisible(), false);
+    assert.equal(await page.locator("#portfolio-result-amount").textContent(), "+R$ 24,50");
+    assert.equal(await page.locator("#portfolio-result-percent").textContent(), "+1,25%");
     if (process.env.UI_SCREENSHOT_DIR) {
       await page.screenshot({ path: path.join(process.env.UI_SCREENSHOT_DIR, "financas-desktop.png") });
     }
@@ -118,6 +129,19 @@ async function main() {
     }), false);
     if (process.env.UI_SCREENSHOT_DIR) {
       await page.screenshot({ path: path.join(process.env.UI_SCREENSHOT_DIR, "financas-mobile.png") });
+    }
+    await page.evaluate(() => {
+      document.querySelector("#finances-view").hidden = true;
+      document.querySelector("#investments-view").hidden = false;
+      document.querySelector("#finances-tab").setAttribute("aria-selected", "false");
+      document.querySelector("#investments-tab").setAttribute("aria-selected", "true");
+      window.scrollTo(0, 0);
+    });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
+    assert.equal(await page.locator("#portfolio-result-percent").textContent(), "+1,25%");
+    if (process.env.UI_SCREENSHOT_DIR) {
+      await page.setViewportSize({ width: 1440, height: 1150 });
+      await page.screenshot({ path: path.join(process.env.UI_SCREENSHOT_DIR, "investimentos-summary.png") });
     }
     assert.deepEqual(errors, []);
     console.log("Privacy browser OK: amounts, percentages, quantities, tooltips, inputs, charts, live updates, reload and mobile.");

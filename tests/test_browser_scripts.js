@@ -20,7 +20,9 @@ assert.equal(syntax.status, 0, syntax.stderr);
 function element() {
   return {
     textContent: "", children: [], disabled: false,
-    classList: { toggle(name, value) { this[name] = value; }, add() {}, remove() {} },
+    classList: { toggle(name, value) { this[name] = value; },
+      add(...names) { names.forEach(name => { this[name] = true; }); },
+      remove(...names) { names.forEach(name => { this[name] = false; }); } },
     addEventListener() {},
     append(...children) { this.children.push(...children); },
     replaceChildren(...children) { this.children = children; },
@@ -78,6 +80,31 @@ async function main() {
   assert.match(select("#webhook-status").textContent, /Atualizado pelos avisos: XP/);
   await vm.runInContext("checkWebhooks()", context);
   assert.equal(calls.filter(call => call.route === "/pluggy/webhooks/check").length, 1);
+  // A valid zero is different from a missing result; failed/incomplete data
+  // must clear previously rendered earnings rather than invent a return.
+  context.money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+  context.formatDate = value => value.split("-").reverse().join("/");
+  context.investmentsView = { hidden: true };
+  vm.runInContext(fs.readFileSync(path.join(root, "static/performance.js"), "utf8"), context);
+  const result = { basis: "pluggy", status: "ready", gain_cents: 2450, portfolio_percent: 1.25,
+    cdi_percent: null, baseline: { as_of: "2026-01-01" }, latest_snapshot: { as_of: "2026-01-31" } };
+  const render = data => vm.runInContext(`renderPortfolioResult(${JSON.stringify(data)})`, context);
+  render(result);
+  assert.match(select("#portfolio-result-amount").textContent, /^\+R\$\s24,50$/);
+  assert.equal(select("#portfolio-result-percent").textContent, "+1,25%");
+  assert.match(select("#portfolio-result-period").textContent, /01\/01\/2026 a 31\/01\/2026/);
+  assert.match(select("#portfolio-result-benchmark").textContent, /aguardando/);
+  render({ ...result, gain_cents: -2450, portfolio_percent: -1.25, cdi_percent: .8 });
+  assert.match(select("#portfolio-result-amount").textContent, /^−R\$\s24,50$/);
+  assert.equal(select("#portfolio-result-percent").textContent, "−1,25%");
+  assert.equal(select("#portfolio-result-amount").classList.negative, true);
+  assert.match(select("#portfolio-result-benchmark").textContent, /0,80%/);
+  render({ ...result, gain_cents: 0, portfolio_percent: 0 });
+  assert.equal(select("#portfolio-result-percent").textContent, "0,00%");
+  render({ ...result, status: "review_flows", message: "Revise as transferências." });
+  assert.equal(select("#portfolio-result-amount").textContent, "—");
+  assert.equal(select("#portfolio-result-percent").textContent, "—");
+  assert.equal(select("#portfolio-result-note").textContent, "Revise as transferências.");
   console.log("Browser scripts OK: shared scope, notice rendering, manual sync and automatic pause.");
 }
 

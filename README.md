@@ -30,6 +30,8 @@ O Touch ID protege a **interface e a API local** contra acesso casual com o Mac 
 
 O botão de olho no topo alterna **Ocultar valores / Mostrar valores** em todas as abas. Esconde quantias, percentuais, quantidades de cotas, dicas dos gráficos e valores digitados nos campos monetários. Os gráficos e o relatório semanal também ficam ocultos para evitar revelar números pelo desenho ou pelo texto livre. A preferência é lembrada neste navegador; atualizações novas continuam ocultas. Ao mostrar novamente, a tela recupera os valores mais recentes sem consultar a API de novo. O botão muda somente a exibição; os registros e cálculos permanecem no aplicativo. Touch ID continua controlando o acesso.
 
+Na aba Investimentos, **O que seu dinheiro rendeu** destaca ganho/perda em reais e rentabilidade estimada no histórico disponível. O período e a origem aparecem no mesmo quadro; ambos acompanham o histórico escolhido em **Seu rendimento contra o CDI**. Aportes e saques externos são ajustados pelo cálculo existente. CDI ausente não bloqueia o resultado da carteira. Histórico insuficiente ou movimentações pendentes de revisão aparecem como indisponíveis, sem preencher zero.
+
 ## Funcionalidades
 
 - Cadastro, edição e exclusão de receitas e despesas, com valores armazenados em centavos inteiros.

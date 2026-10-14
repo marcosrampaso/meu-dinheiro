@@ -6,6 +6,37 @@ let performanceRequestId = 0;
 const performanceBasis = document.querySelector("#performance-basis");
 let selectedPerformanceBasis = "auto";
 
+function renderPortfolioResult(data) {
+  const amount = document.querySelector("#portfolio-result-amount");
+  const percent = document.querySelector("#portfolio-result-percent");
+  const period = document.querySelector("#portfolio-result-period");
+  const benchmark = document.querySelector("#portfolio-result-benchmark");
+  const note = document.querySelector("#portfolio-result-note");
+  document.querySelector("#portfolio-result-source").textContent = data.basis === "pluggy"
+    ? "Automático · Pluggy" : data.basis === "total" ? "Saldos completos / manuais" : "Histórico XP";
+  period.textContent = data.baseline && data.latest_snapshot
+    ? `Histórico de ${formatDate(data.baseline.as_of)} a ${formatDate(data.latest_snapshot.as_of)}`
+    : "Histórico de rendimento ainda indisponível";
+  const ready = data.status === "ready" && Number.isFinite(data.gain_cents) && Number.isFinite(data.portfolio_percent);
+  for (const value of [amount, percent]) {
+    value.classList.remove("positive", "negative");
+    value.textContent = "—";
+  }
+  if (!ready) {
+    benchmark.textContent = "Aguardando uma comparação válida";
+    note.textContent = data.message || "Não foi possível calcular o rendimento agora.";
+    return;
+  }
+  amount.textContent = `${data.gain_cents < 0 ? "−" : data.gain_cents > 0 ? "+" : ""}${money.format(Math.abs(data.gain_cents) / 100)}`;
+  percent.textContent = `${data.portfolio_percent < 0 ? "−" : data.portfolio_percent > 0 ? "+" : ""}${performancePercent.format(Math.abs(data.portfolio_percent))}%`;
+  amount.classList.add(data.gain_cents < 0 ? "negative" : "positive");
+  percent.classList.add(data.portfolio_percent < 0 ? "negative" : "positive");
+  benchmark.textContent = Number.isFinite(data.cdi_percent)
+    ? `CDI no mesmo período: ${performancePercent.format(data.cdi_percent)}%`
+    : "CDI aguardando dados do Banco Central";
+  note.textContent = "Estimativa do histórico disponível, com aportes e saques externos ajustados. Proventos recebidos já estão incluídos no resultado.";
+}
+
 function performanceAmount(label, cents) {
   const box = document.createElement("div");
   box.className = "performance-metric";
@@ -71,6 +102,7 @@ function drawPerformance(points) {
 }
 
 function renderPerformance(data) {
+  renderPortfolioResult(data);
   performanceBasis.value = data.basis;
   for (const series of data.series) {
     const option = performanceBasis.querySelector(`option[value="${series.id}"]`);
@@ -146,6 +178,7 @@ async function refreshPerformance() {
     renderPerformance(data);
   } catch (error) {
     if (requestId !== performanceRequestId) return;
+    renderPortfolioResult({ basis: selectedPerformanceBasis, message: "Não foi possível consultar o rendimento agora. Tente novamente ao atualizar a aba." });
     emptyChart(performanceChart, "Não foi possível calcular a comparação.");
     chartInsight("performance-insight", error.message);
   }
@@ -154,6 +187,13 @@ async function refreshPerformance() {
 performanceBasis.addEventListener("change", () => {
   selectedPerformanceBasis = performanceBasis.value;
   refreshPerformance();
+});
+
+document.querySelector("#portfolio-result-details").addEventListener("click", () => {
+  document.querySelector(".performance-panel").scrollIntoView({
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+    block: "start",
+  });
 });
 
 document.addEventListener("investments-view-resume", refreshPerformance);
