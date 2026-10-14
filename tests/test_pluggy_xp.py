@@ -93,7 +93,8 @@ class PluggyXPTests(unittest.TestCase):
         position = store.latest_investment_position()
         self.assertEqual((position["provider"],position["complete"],position["total_cents"]),("pluggy",0,13000))
         self.assertEqual(position["assets"][0]["cost_known"],0)
-        self.assertEqual(performance_overview(store)["snapshot_count"],0)
+        self.assertEqual(performance_overview(store)["snapshot_count"],1)
+        self.assertTrue(result['performance_saved'])
         second = self.integration.preview_sync(self.sync_http)
         self.integration.import_preview(second["preview_token"])
         with store._connect() as connection:
@@ -111,6 +112,7 @@ class PluggyXPTests(unittest.TestCase):
         with self.integration.store._connect() as connection:
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM investment_entries").fetchone()[0],0)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM investment_snapshots").fetchone()[0],0)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM investment_observations").fetchone()[0],0)
         self.assertTrue(list(self.integration.store.path.parent.glob("*.bak")))
 
 

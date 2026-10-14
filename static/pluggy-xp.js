@@ -157,7 +157,7 @@ xpImportButton.addEventListener("click", async () => {
       method: "POST", body: JSON.stringify({ preview_token: xpPreviewToken }),
     });
     xpPreviewToken = null;
-    pluggyStatus(`${result.imported} movimentações substituíram ${result.replaced} registros; ${result.asset_count} ativos atualizados. Cópia de recuperação salva localmente.`);
+    pluggyStatus(`${result.imported} movimentações substituíram ${result.replaced} registros; ${result.asset_count} ativos atualizados. Posição guardada no histórico de rendimento. Cópia de recuperação salva localmente.`);
     document.dispatchEvent(new Event("investment-data-change"));
     await refresh();
   } catch (error) { pluggyStatus(error.message, true); }

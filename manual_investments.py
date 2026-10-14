@@ -11,6 +11,9 @@ from finance import FinanceStore, ValidationError, parse_amount
 
 
 def imported_flow_kind(description: str, amount_cents: int) -> str:
+    from investment_history import received_income
+    if received_income(description, amount_cents):
+        return "internal"
     label = unicodedata.normalize("NFKD", description).encode("ascii", "ignore").decode().casefold().strip()
     if amount_cents > 0 and re.match(r"^(pix recebido|ted recebida|ted recebido)\b", label):
         return "external"

@@ -3,6 +3,20 @@ const performanceSummary = document.querySelector("#performance-summary");
 const performanceFlows = document.querySelector("#performance-flows");
 const performancePercent = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 let performanceRequestId = 0;
+const performanceBasis = document.querySelector("#performance-basis");
+let selectedPerformanceBasis = "auto";
+
+function performanceAmount(label, cents) {
+  const box = document.createElement("div");
+  box.className = "performance-metric";
+  const caption = document.createElement("span");
+  caption.textContent = label;
+  const value = document.createElement("strong");
+  value.textContent = money.format(cents / 100);
+  value.classList.toggle("negative", cents < 0);
+  box.append(caption, value);
+  return box;
+}
 
 function performanceMetric(label, percent, cdi = false) {
   const box = document.createElement("div");
@@ -10,14 +24,14 @@ function performanceMetric(label, percent, cdi = false) {
   const caption = document.createElement("span");
   caption.textContent = label;
   const value = document.createElement("strong");
-  value.textContent = `${percent >= 0 ? "+" : ""}${performancePercent.format(percent)}%`;
+  value.textContent = percent === null ? "Aguardando dados" : `${percent >= 0 ? "+" : ""}${performancePercent.format(percent)}%`;
   box.append(caption, value);
   return box;
 }
 
 function drawPerformance(points) {
   const svg = chartSvg("Rendimento da carteira XP comparado ao CDI");
-  const values = points.flatMap(row => [row.portfolio_percent, row.cdi_percent]);
+  const values = points.flatMap(row => [row.portfolio_percent, row.cdi_percent]).filter(Number.isFinite);
   const low = Math.min(0, ...values), high = Math.max(0, ...values);
   const padding = Math.max(1, (high - low) * .12);
   const bottom = low - padding, top = high + padding;
@@ -36,10 +50,12 @@ function drawPerformance(points) {
     { key: "portfolio_percent", color: "#5268f5", label: "Carteira XP" },
     { key: "cdi_percent", color: "#00a87b", label: "CDI" },
   ]) {
-    const path = points.map((row, index) => `${index ? "L" : "M"}${x(row).toFixed(1)},${y(row[series.key]).toFixed(1)}`).join(" ");
+    const available = points.filter(row => Number.isFinite(row[series.key]));
+    if (!available.length) continue;
+    const path = available.map((row, index) => `${index ? "L" : "M"}${x(row).toFixed(1)},${y(row[series.key]).toFixed(1)}`).join(" ");
     svg.append(svgNode("path", { d: path, fill: "none", stroke: series.color,
       "stroke-width": 4, "stroke-linecap": "round", class: "chart-line" }));
-    points.forEach(row => {
+    available.forEach(row => {
       const message = `${formatDate(row.date)} · ${series.label}: ${performancePercent.format(row[series.key])}%`;
       const dot = svgNode("circle", { cx: x(row), cy: y(row[series.key]), r: 5,
         fill: series.color, stroke: "white", "stroke-width": 2, class: "chart-point" });
@@ -55,13 +71,36 @@ function drawPerformance(points) {
 }
 
 function renderPerformance(data) {
+  performanceBasis.value = data.basis;
+  for (const series of data.series) {
+    const option = performanceBasis.querySelector(`option[value="${series.id}"]`);
+    option.textContent = `${series.label} · ${series.count} datas`;
+  }
+  const latest = data.latest_snapshot;
+  let note = data.valuation_note;
+  if (latest && data.basis === "pluggy") {
+    note += ` Última posição: ${formatDate(latest.as_of)}.`;
+    if (latest.oldest_quote_on && latest.oldest_quote_on < latest.as_of) {
+      note += ` Há valores com referência de ${formatDate(latest.oldest_quote_on)}; a estimativa usa as datas informadas pela XP.`;
+    }
+    if (latest.missing_quote_dates) note += ` ${latest.missing_quote_dates} ativo(s) sem data de cotação.`;
+  }
+  document.querySelector("#performance-basis-note").textContent = note;
+  if (data.benchmark_status === "needs_cdi") {
+    document.querySelector("#performance-basis-note").textContent += " Aguardando taxas do Banco Central para comparar com o CDI.";
+  }
   performanceSummary.replaceChildren();
   if (data.status !== "ready") {
+    if (data.baseline) {
+      performanceSummary.append(performanceAmount(`Posição inicial · ${formatDate(data.baseline.as_of)}`, data.baseline.total_cents));
+    }
     emptyChart(performanceChart, data.message);
-    chartInsight("performance-insight", "");
+    chartInsight("performance-insight", data.baseline ? `Acompanhamento desde ${formatDate(data.baseline.as_of)}. Atualize a XP nas Configurações para guardar a próxima posição.` : "");
   } else {
-    performanceSummary.append(performanceMetric("Carteira XP", data.portfolio_percent),
-      performanceMetric("CDI no mesmo período", data.cdi_percent, true));
+    performanceSummary.append(performanceAmount("Ganho no período", data.gain_cents),
+      performanceMetric("Carteira XP", data.portfolio_percent),
+      performanceMetric("CDI no mesmo período", data.cdi_percent, true),
+      performanceAmount("Proventos recebidos · já incluídos no ganho", data.received_income_cents));
     drawPerformance(data.points);
     chartInsight("performance-insight", `${data.snapshot_count} posições XP de ${formatDate(data.points[0].date)} a ${formatDate(data.points.at(-1).date)}. Passe o mouse ou selecione um ponto.`);
   }
@@ -102,7 +141,7 @@ async function refreshPerformance() {
   if (investmentsView.hidden) return;
   const requestId = ++performanceRequestId;
   try {
-    const data = await request("/investments/performance");
+    const data = await request(`/investments/performance?basis=${selectedPerformanceBasis}`);
     if (requestId !== performanceRequestId) return;
     renderPerformance(data);
   } catch (error) {
@@ -111,6 +150,11 @@ async function refreshPerformance() {
     chartInsight("performance-insight", error.message);
   }
 }
+
+performanceBasis.addEventListener("change", () => {
+  selectedPerformanceBasis = performanceBasis.value;
+  refreshPerformance();
+});
 
 document.addEventListener("investments-view-resume", refreshPerformance);
 document.addEventListener("investment-data-change", refreshPerformance);

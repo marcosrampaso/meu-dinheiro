@@ -251,7 +251,8 @@ class PluggyXP:
                 seen.add(key)
                 classification = imported_flow_kind(description, amount)
                 plain = description.casefold()
-                if row.get("operationType") in ("PIX", "TED") and not any(word in plain for word in ("conta investimento", "aplica", "resgate")):
+                from investment_history import received_income
+                if row.get("operationType") in ("PIX", "TED") and not received_income(description, amount) and not any(word in plain for word in ("conta investimento", "aplica", "resgate")):
                     classification = "external"
                 entries.append({"import_key": key, "occurred_at": occurred_on + "T12:00:00",
                                 "occurred_on": occurred_on, "description": description, "amount_cents": amount,
@@ -260,8 +261,11 @@ class PluggyXP:
         if not any(a.get("type") == "BANK" for a in accounts):
             raise PluggyError("A XP não trouxe as contas para conferir o saldo e as movimentações.")
         from pluggy_sync import covered_start
-        period = {"starts_on": covered_start(self.store, "XP", "personal", min(dates)),
-                  "ends_on": min(date.today().isoformat(), max(updated_dates))} if dates else None
+        with self.store._connect() as connection:
+            first_observation = connection.execute("SELECT MIN(as_of) FROM investment_observations").fetchone()[0]
+        period_start = covered_start(self.store, "XP", "personal", min(dates)) if dates else first_observation or date.today().isoformat()
+        period_end = min(date.today().isoformat(), max(updated_dates))
+        period = {"starts_on": period_start, "ends_on": period_end} if period_start <= period_end else None
         checked_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         snapshot = {"as_of": date.today().isoformat(), "assets_cents": sum(a["value_cents"] for a in assets),
                     "cash_cents": cash, "checked_at": checked_at, "assets": assets}
@@ -275,7 +279,7 @@ class PluggyXP:
                                   "snapshot": snapshot, "period": period}
         return {"preview_token": token, "checked_at": checked_at, "period": period, "count": len(entries),
                 "replaced_count": replaced, "snapshot": snapshot,
-                "note": "A Pluggy substitui as movimentações nas datas acima e atualiza os valores dos ativos. Custos ausentes usam a referência local quando possível. Proventos a receber não foram fornecidos: o patrimônio mostrado é parcial e não entra no comparador com o CDI."}
+                "note": "A Pluggy atualiza os ativos e as movimentações e guarda uma posição para o rendimento automático. A comparação usa ativos + saldo disponível e desconta aportes/saques externos. Proventos recebidos já compõem o saldo; proventos a receber estão fora dessa base. Custos ausentes usam a referência local quando possível."}
 
     def import_preview(self, token):
         with self._sync_lock:

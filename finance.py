@@ -277,6 +277,14 @@ class FinanceStore:
                                        ("complete", "INTEGER NOT NULL DEFAULT 1"), ("checked_at", "TEXT")):
                 if column not in snapshot_columns:
                     connection.execute(f"ALTER TABLE investment_snapshots ADD COLUMN {column} {definition}")
+            connection.execute("""CREATE TABLE IF NOT EXISTS investment_observations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                as_of TEXT NOT NULL, checked_at TEXT NOT NULL,
+                assets_cents INTEGER NOT NULL, cash_cents INTEGER NOT NULL,
+                total_cents INTEGER NOT NULL, assets_json TEXT NOT NULL,
+                UNIQUE(as_of,checked_at))""")
+            from investment_history import seed_observations
+            seed_observations(connection)
             connection.execute("""INSERT OR IGNORE INTO investment_assets (name, category)
                 SELECT DISTINCT name, category FROM investment_positions""")
             flow_columns = {row["name"] for row in connection.execute(

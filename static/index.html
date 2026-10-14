@@ -227,7 +227,7 @@
           <div id="investment-assets"></div>
         </section>
         <section class="panel investment-returns" aria-labelledby="investment-returns-title">
-          <div class="panel-header"><div><p class="eyebrow">RENDIMENTO</p><h2 id="investment-returns-title">Rendimento por ativo</h2></div><strong id="investment-return-total">—</strong></div>
+          <div class="panel-header"><div><p class="eyebrow">RENDIMENTO</p><h2 id="investment-returns-title">Ganho acumulado por ativo</h2></div><strong id="investment-return-total">—</strong></div>
           <p id="investment-return-note" class="panel-intro">Importe uma posição detalhada para comparar custo e valor atual.</p>
           <div id="investment-return-chart" aria-label="Gráfico de rendimento por ativo"></div>
         </section>
@@ -245,12 +245,13 @@
           <p id="cdi-note" class="chart-note">Fonte: <a href="https://www3.bcb.gov.br/sgspub/consultarvalores/consultarValoresSeries.do?method=consultarSeries&amp;series=12" target="_blank" rel="noopener noreferrer">Banco Central, série 12</a>. Acumulado composto por dia útil, antes de impostos e taxas.</p>
         </section>
         <section class="panel chart-panel performance-panel" aria-labelledby="performance-title">
-          <div class="panel-header"><div><p class="eyebrow">CARTEIRA × REFERÊNCIA</p><h2 id="performance-title">Seu rendimento contra o CDI</h2><p>Comparação por posições XP em datas diferentes, ajustada pelos aportes e saques externos.</p></div></div>
+          <div class="panel-header"><div><p class="eyebrow">CARTEIRA × REFERÊNCIA</p><h2 id="performance-title">Seu rendimento contra o CDI</h2><p>Posições em datas diferentes, ajustadas pelos aportes e saques externos.</p></div><label class="performance-basis-label">Histórico<select id="performance-basis"><option value="pluggy">Automático · Pluggy</option><option value="total">Saldos completos / manuais</option></select></label></div>
           <div id="performance-summary" class="performance-summary"></div>
+          <p id="performance-basis-note" class="chart-note"></p>
           <div id="performance-chart" class="chart-area" aria-live="polite"></div>
           <div id="performance-insight" class="chart-insight" aria-live="polite">Aguardando posições históricas.</div>
           <div id="performance-flows" class="performance-flows"></div>
-          <p class="chart-note">Estimativa pelo método Dietz modificado; pode diferir da rentabilidade oficial da XP. O CDI é bruto e não considera impostos ou taxas. Revise os fluxos externos antes de comparar.</p>
+          <p class="chart-note">Cada sincronização guarda uma posição. O gráfico usa a última posição de cada dia e precisa de duas datas. Estimativa por Dietz modificado; pode diferir da XP, especialmente com cotações atrasadas. CDI bruto, sem impostos ou taxas.</p>
         </section>
         <div class="manual-investment-grid">
           <section class="panel" aria-labelledby="manual-flow-title">

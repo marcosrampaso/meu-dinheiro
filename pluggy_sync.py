@@ -240,5 +240,7 @@ def apply_xp(store, pending):
                 VALUES (:as_of,:name,:category,:value_cents,:cost_cents,:quantity,:net_cents,:cost_known,:quote_date)""",
                 {**asset, "as_of": snapshot["as_of"]})
             connection.execute("INSERT OR IGNORE INTO investment_assets(name,category) VALUES (?,?)", (asset["name"],asset["category"]))
+        from investment_history import capture_observation
+        capture_observation(connection, snapshot)
     return {"imported": len(entries), "replaced": len(old), "asset_count": len(snapshot["assets"]),
-            "as_of": snapshot["as_of"], "backup": saved, "complete": False}
+            "as_of": snapshot["as_of"], "backup": saved, "complete": False, "performance_saved": True}

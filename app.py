@@ -260,7 +260,7 @@ class FinanceHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.OK, self.server.cdi.overview(int(raw_months)))
             return
         if path == API_PREFIX + "/investments/performance":
-            self._json(HTTPStatus.OK, performance_overview(self.server.store))
+            self._json(HTTPStatus.OK, performance_overview(self.server.store, query.get("basis", ["auto"])[0]))
             return
         if path == API_PREFIX + "/investments/manual":
             self._json(HTTPStatus.OK, manual_overview(self.server.store))

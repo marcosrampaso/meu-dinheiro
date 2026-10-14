@@ -209,6 +209,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.call_api("/api/v1/budgets?scope=personal&category=Mercado", "DELETE")[0], 200)
         status, performance = self.call_api("/api/v1/investments/performance")
         self.assertEqual((status, performance["status"]), (200, "needs_snapshots"))
+        self.assertEqual(self.call_api("/api/v1/investments/performance?basis=pluggy")[1]['basis'], 'pluggy')
+        self.assertEqual(self.call_api("/api/v1/investments/performance?basis=invalid")[0], 400)
 
     def test_xp_import_preview_and_commit_keep_cash_flow_separate(self):
         payload = {"filename": "xp.csv", "content": XP_CSV}

@@ -53,7 +53,10 @@ class PerformanceTests(unittest.TestCase):
                                ("c" * 64,))
         self.assertEqual(performance_overview(self.store)["status"], "review_flows")
         classify_flow(self.store, "c" * 64, "internal")
-        self.assertEqual(performance_overview(self.store)["status"], "needs_cdi")
+        result = performance_overview(self.store)
+        self.assertEqual(result["status"], "ready")
+        self.assertEqual(result["benchmark_status"], "needs_cdi")
+        self.assertIsNone(result["cdi_percent"])
 
 
 if __name__ == "__main__":
