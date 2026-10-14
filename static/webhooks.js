@@ -14,7 +14,12 @@ async function refreshWebhookStatus() {
   webhookForm.elements.url.value = data.url;
   webhookForm.elements.enabled.checked = data.enabled;
   document.querySelector("#webhook-register").disabled = !data.configured;
-  document.querySelector("#webhook-check").disabled = !data.configured || !data.enabled;
+  document.querySelector("#webhook-check").disabled = !data.configured;
+  document.querySelector("#webhook-check-hint").textContent = !data.configured
+    ? "Salve o receptor para conferir os avisos."
+    : data.enabled
+      ? "Atualização automática ativada. Você também pode conferir agora."
+      : "Atualização automática pausada. Conferir avisos agora continua disponível e pode atualizar suas contas.";
   document.querySelector("#webhook-disable").hidden = !data.configured && !data.keys_saved;
   document.querySelector("#webhook-state").textContent = data.enabled ? "Sincronização ativada" : data.configured ? "Receptor salvo · sincronização pausada" : "Aguardando receptor";
   const target = document.querySelector("#webhook-notices");
@@ -25,10 +30,10 @@ async function refreshWebhookStatus() {
 }
 
 async function checkWebhooks(manual = false) {
-  if (webhookBusy || !localAuth.token() || document.hidden || !webhookEnabled) return;
+  if (webhookBusy || !localAuth.token() || document.hidden || (!manual && !webhookEnabled)) return;
   webhookBusy = true;
   try {
-    const result = await request("/pluggy/webhooks/check", { method: "POST", body: "{}" });
+    const result = await request("/pluggy/webhooks/check", { method: "POST", body: JSON.stringify({ manual }) });
     if (result.processed || manual || result.errors?.length) {
       const errors = (result.errors || []).map(e => `${e.source}: ${e.message}`).join(" · ");
       webhookStatus(result.synchronized.length ? `Atualizado pelos avisos: ${result.synchronized.join(" e ")}. ${errors}` : errors || result.message,
@@ -61,12 +66,12 @@ document.querySelector("#webhook-hide-keys").addEventListener("click", () => {
 webhookForm.addEventListener("submit", async event => {
   event.preventDefault();
   try {
-    await request("/pluggy/webhooks/config", { method:"POST", body:JSON.stringify({
+    const data = await request("/pluggy/webhooks/config", { method:"POST", body:JSON.stringify({
       url:webhookForm.elements.url.value, read_token:webhookForm.elements.read_token.value,
       enabled:webhookForm.elements.enabled.checked,
     }) });
     webhookForm.elements.read_token.value = "";
-    webhookStatus("Receptor salvo. Registre os avisos na Pluggy para começar.");
+    webhookStatus(data.enabled ? "Receptor salvo com atualização automática ativada." : "Receptor salvo. Você pode conferir manualmente; a atualização automática está pausada.");
     await refreshWebhookStatus();
   } catch (error) { webhookStatus(error.message, true); }
 });
@@ -74,7 +79,7 @@ webhookForm.addEventListener("submit", async event => {
 document.querySelector("#webhook-register").addEventListener("click", async () => {
   try {
     const data = await request("/pluggy/webhooks/register", { method:"POST", body:"{}" });
-    webhookStatus(`${data.registered} tipos de aviso registrados. A Pluggy avisará quando suas conexões atualizarem.`);
+    webhookStatus(`${data.registered} tipos de aviso registrados. ${webhookEnabled ? "A atualização automática está ativada." : "Use Conferir avisos agora ou ative e salve a atualização automática."}`);
     await checkWebhooks();
   } catch (error) { webhookStatus(error.message, true); }
 });

@@ -90,6 +90,7 @@ class ApiTests(unittest.TestCase):
     def test_touch_id_gate_covers_reads_and_writes(self):
         self.assertEqual(self.call_api('/api/v1/pluggy/webhooks/status',authenticated=False)[0],401)
         self.assertEqual(self.call_api('/api/v1/pluggy/webhooks/check','POST',{},authenticated=False)[0],401)
+        self.assertEqual(self.call_api('/api/v1/pluggy/webhooks/check','POST',{'manual':True},authenticated=False)[0],401)
         self.assertEqual(self.call_api('/api/v1/pluggy/webhooks/setup','POST',{},authenticated=False)[0],401)
         self.assertEqual(self.call_api("/api/v1/summary?month=2026-10", authenticated=False)[0], 401)
         self.assertEqual(self.call_api("/api/v1/investments/overview", authenticated=False)[0], 401)
@@ -107,6 +108,12 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.call_api("/api/v1/summary?month=2026-10")[0], 200)
         self.assertEqual(self.call_api("/api/v1/local-auth/lock", "POST", {})[0], 200)
         self.assertEqual(self.call_api("/api/v1/summary?month=2026-10")[0], 401)
+
+    def test_webhook_check_forwards_manual_choice_and_validates_boolean(self):
+        with patch.object(self.server.webhooks,'check',return_value={'synchronized':[],'processed':0}) as check:
+            self.assertEqual(self.call_api('/api/v1/pluggy/webhooks/check','POST',{'manual':True})[0],200)
+            check.assert_called_once_with(manual=True)
+        self.assertEqual(self.call_api('/api/v1/pluggy/webhooks/check','POST',{'manual':'false'})[0],400)
 
     def test_crud_and_summary(self):
         data = {

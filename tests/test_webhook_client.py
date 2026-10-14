@@ -70,6 +70,21 @@ class WebhookClientTests(unittest.TestCase):
         self.assertEqual(self.acked,[])
         self.assertEqual(self.client.status()['notices'],[])
 
+    def test_manual_check_works_while_automatic_sync_stays_paused(self):
+        self.client.save_config({'url':'https://example.up.railway.app','enabled':False})
+        self.events=[self.event()]
+        with patch.object(self.client,'_synchronize') as sync:
+            with patch('webhook_client.relay_request') as transport:
+                self.assertEqual(self.client.check(transport)['processed'],0)
+                transport.assert_not_called()
+            result=self.client.check(self.transport,manual=True)
+            sync.assert_called_once_with('XP')
+        self.assertEqual(result['synchronized'],['XP'])
+        self.assertEqual(self.acked,[self.events[0]['event_id']])
+        self.assertFalse(self.client.status()['enabled'])
+        with self.assertRaises(ValidationError):
+            self.client.check(self.transport,manual='false')
+
     def test_authentication_and_deletion_notices_do_not_modify_finances(self):
         self.events=[self.event(event='item/waiting_user_input'),self.event(INTER,'item/deleted'),self.event(str(uuid4()))]
         with patch.object(self.client,'_synchronize') as sync:

@@ -414,8 +414,8 @@ class FinanceHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.OK,self.server.webhooks.register())
             return
         if path == API_PREFIX + '/pluggy/webhooks/check':
-            self._read_json()
-            result = self.server.webhooks.check()
+            data = self._read_json()
+            result = self.server.webhooks.check(manual=data.get('manual', False))
             if result['synchronized']:
                 self.server.market.wake()
                 self.server.cdi.wake()

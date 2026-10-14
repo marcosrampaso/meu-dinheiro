@@ -56,6 +56,7 @@ O receptor descarta outros campos do corpo recebido. Ele não consulta contas. `
 - A restrição única de `eventId` funciona também com entregas simultâneas e várias instâncias do receptor compartilhando PostgreSQL. Esta versão tem um consumidor: este Mac.
 - O receptor confirma depois do commit. Falha do banco devolve `503`. A Pluggy exige resposta em dez segundos e tem tentativas limitadas; confira no Dashboard eventos que não chegaram.
 - O app consulta a fila a cada minuto, com página visível e sessão Touch ID válida. Agrupa avisos da mesma conexão e consulta uma vez os dados atuais.
+- **Conferir avisos agora** também funciona com a atualização automática pausada. A ação manual processa os avisos e pode atualizar XP/Inter, sem ativar a consulta automática.
 - Falha de sincronização mantém o aviso pendente. Falha apenas na confirmação da fila é recuperada pelo recibo local, sem repetir a consulta concluída.
 - Uma queda entre gravação financeira e recibo pode repetir a sincronização. Os importadores conciliam pelos IDs e substituem o período autorizado sem somar outra cópia.
 - Prévias manuais anteriores a uma sincronização nova são recusadas. Faturas históricas do Inter continuam preservadas; a XP guarda a posição para o rendimento.

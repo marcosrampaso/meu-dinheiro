@@ -147,9 +147,11 @@ class WebhookClient:
                 http_json('POST','/webhooks',payload,api_key=api_key)
         return {'registered':len(EVENTS),'url':target}
 
-    def check(self, transport=relay_request):
+    def check(self, transport=relay_request, *, manual=False):
+        if not isinstance(manual, bool):
+            raise ValidationError('A opção de conferência manual deve ser verdadeira ou falsa.')
         config = self.load_config()
-        if not config.get('url') or not config.get('read_token') or not config.get('enabled'):
+        if not config.get('url') or not config.get('read_token') or (not manual and not config.get('enabled')):
             return {'synchronized':[],'processed':0,'message':'Sincronização por avisos desativada.'}
         if not self._lock.acquire(blocking=False):
             return {'synchronized':[],'processed':0,'message':'Uma sincronização já está em andamento.'}
