@@ -19,6 +19,7 @@
   <script src="/weekly.js" defer></script>
   <script src="/planning.js" defer></script>
   <script src="/performance.js" defer></script>
+  <script src="/plans.js" defer></script>
   <script src="/manual-investments.js" defer></script>
   <script src="/pluggy-xp.js" defer></script>
   <script src="/webhooks.js" defer></script>
@@ -54,8 +55,9 @@
       <nav class="workspace-tabs" role="tablist" aria-label="Áreas do Meu Dinheiro">
         <button id="finances-tab" type="button" role="tab" aria-controls="finances-view" aria-selected="true"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>Finanças</button>
         <button id="investments-tab" type="button" role="tab" aria-controls="investments-view" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 17 9 11l4 4 8-10M15 5h6v6M3 21h18"/></svg>Investimentos</button>
+        <button id="plans-tab" type="button" role="tab" aria-controls="plans-view" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="m12 12 8-8M16 4h4v4"/></svg>Planos</button>
         <button id="news-tab" type="button" role="tab" aria-controls="news-view" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 7h8M8 11h8M8 15h3M8 18h8"/></svg>Notícias</button>
-        <button id="settings-tab" type="button" role="tab" aria-controls="settings-view" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="currentColor"/><circle cx="15" cy="17" r="3" fill="currentColor"/></svg>Configurações</button>
+        <button id="settings-tab" type="button" role="tab" aria-controls="settings-view" aria-selected="false" aria-label="Configurações"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="currentColor"/><circle cx="15" cy="17" r="3" fill="currentColor"/></svg><span class="nav-label-long">Configurações</span><span class="nav-label-short" aria-hidden="true">Config.</span></button>
       </nav>
       <div id="finances-view" class="app-view" role="tabpanel" aria-labelledby="finances-tab">
       <section class="hero" aria-labelledby="page-title">
@@ -316,6 +318,36 @@
           <div id="news-status" class="import-status" role="status" aria-live="polite"></div>
         </section>
         <div id="news-report"></div>
+      </section>
+      <section id="plans-view" class="app-view" role="tabpanel" aria-labelledby="plans-tab" hidden>
+        <div class="investment-hero"><div><p class="eyebrow">UM PASSO DE CADA VEZ</p><h1>Crie seu plano.</h1><p>Transforme sua reserva de emergência em uma meta que você consegue acompanhar.</p></div><label class="month-picker">Plano de<select id="plan-scope"><option value="personal">Pessoal</option><option value="business">PJ</option></select></label></div>
+        <div id="plan-status" class="import-status" role="status" aria-live="polite"></div>
+        <div class="reserve-layout">
+          <section class="panel reserve-builder" aria-labelledby="reserve-builder-title">
+            <div class="panel-header"><div><p class="eyebrow">SEU PONTO DE PARTIDA</p><h2 id="reserve-builder-title">Reserva de emergência</h2></div><span id="plan-save-state" class="portfolio-result-source">Novo plano</span></div>
+            <form id="reserve-plan-form">
+              <label>Nome do plano<input name="name" maxlength="80" required value="Minha reserva de emergência"></label>
+              <fieldset><legend><b>1</b> Defina seu custo de vida</legend><p class="chart-note">Informe a média mensal que cobre suas despesas essenciais, como moradia, alimentação, saúde e transporte. Revise os gastos da área escolhida.</p><label>Despesas essenciais por mês (R$)<input name="essential_expenses" inputmode="decimal" placeholder="0,00" required></label></fieldset>
+              <fieldset><legend><b>2</b> Escolha a proteção desejada</legend><div class="form-row"><label>Meses de despesas<select name="target_months"><option value="1">1 mês</option><option value="3">3 meses</option><option value="6" selected>6 meses</option><option value="9">9 meses</option><option value="12">12 meses</option><option value="18">18 meses</option><option value="24">24 meses</option></select></label><label>Saldo já reservado (R$)<input name="reserved_balance" inputmode="decimal" value="0,00" required></label></div><label>Saldo confirmado em<input name="balance_as_of" type="date" required></label><p class="chart-note">Informe somente o dinheiro destinado a esta reserva. O patrimônio inteiro da XP e os saldos das contas não entram automaticamente.</p></fieldset>
+              <fieldset><legend><b>3</b> Planeje os próximos aportes</legend><div class="form-row"><label>Aporte mensal planejado (R$)<input name="monthly_contribution" inputmode="decimal" placeholder="0,00" required></label><label>Próximo aporte<input name="next_contribution_on" type="date" required></label></div><p class="chart-note">A projeção usa aportes mensais constantes. Um aporte de zero pausa a previsão. Nos meses menores, o dia é ajustado para o último dia do mês.</p></fieldset>
+              <div class="form-actions"><button id="plan-save" class="primary-button" type="submit">Criar meu plano</button><button id="plan-preview" class="secondary-button" type="button">Simular</button></div>
+            </form>
+            <button id="plan-delete" class="text-button" type="button" hidden>Excluir este plano</button>
+          </section>
+          <div class="reserve-dashboard">
+            <section id="plan-empty" class="panel reserve-welcome"><span class="reserve-symbol" aria-hidden="true">◎</span><p class="eyebrow">SUA PRIMEIRA META</p><h2>Uma reserva para ter mais tranquilidade.</h2><p>Preencha os três passos para ver o valor da meta, os meses de despesas cobertos e quantos aportes faltam.</p><small>Este plano organiza sua meta. Você decide onde guardar o dinheiro e confirma o saldo da reserva.</small></section>
+            <section id="plan-progress" class="panel reserve-progress" hidden aria-live="polite">
+              <div class="panel-header"><div><p class="eyebrow">SEU PROGRESSO</p><h2 id="plan-title">Minha reserva</h2><p id="plan-balance-date"></p></div><span id="plan-progress-state" class="portfolio-result-source"></span></div>
+              <div class="reserve-amounts"><div><span>Já reservado</span><strong id="plan-current">—</strong></div><div><span>Meta da reserva</span><strong id="plan-target">—</strong></div></div>
+              <div id="plan-progress-track" class="reserve-progress-track"><div id="plan-progress-fill"></div></div>
+              <p id="plan-progress-caption"></p>
+              <div class="reserve-facts"><div><span>Falta guardar</span><strong id="plan-remaining">—</strong></div><div><span>Despesas cobertas</span><strong id="plan-covered" data-private-value>—</strong></div><div><span>Aportes restantes</span><strong id="plan-payments" data-private-value>—</strong></div><div><span>Conclusão estimada</span><strong id="plan-completion" data-private-value>—</strong></div></div>
+              <div id="plan-milestones" class="reserve-milestones"></div><p id="plan-projection-note" class="chart-note"></p>
+            </section>
+            <section id="plan-projection" class="panel chart-panel" hidden><div class="panel-header"><div><p class="eyebrow">UM CENÁRIO PARA SEGUIR</p><h2>Seu caminho até a meta</h2><p>Saldo informado e próximos aportes planejados.</p></div></div><div id="reserve-projection-chart" class="chart-area"></div><div id="reserve-projection-insight" class="chart-insight">Selecione um ponto para conferir o saldo projetado.</div></section>
+            <section id="plan-cash-check" class="panel reserve-cash-check" hidden><div class="panel-header"><div><p class="eyebrow">ANTES DE APORTAR</p><h2>Conferência de caixa</h2></div></div><p id="plan-cash-state"></p><div id="plan-cash-values"></div><p id="plan-cash-note" class="chart-note"></p><a href="#financas">Revisar vencimentos e recorrências →</a></section>
+          </div>
+        </div>
       </section>
       <section id="settings-view" class="app-view" role="tabpanel" aria-labelledby="settings-tab" hidden>
         <div class="investment-hero"><div><p class="eyebrow">ACESSOS</p><h1>Configurações</h1><p>Gerencie as conexões usadas pela categorização, notícias e investimentos.</p></div></div>

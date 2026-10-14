@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -88,6 +89,10 @@ class ApiTests(unittest.TestCase):
         return status, content
 
     def test_touch_id_gate_covers_reads_and_writes(self):
+        self.assertEqual(self.call_api('/api/v1/plans/reserve',authenticated=False)[0],401)
+        self.assertEqual(self.call_api('/api/v1/plans/reserve','POST',{},authenticated=False)[0],401)
+        self.assertEqual(self.call_api('/api/v1/plans/reserve/preview','POST',{},authenticated=False)[0],401)
+        self.assertEqual(self.call_api('/api/v1/plans/reserve','DELETE',authenticated=False)[0],401)
         self.assertEqual(self.call_api('/api/v1/pluggy/webhooks/status',authenticated=False)[0],401)
         self.assertEqual(self.call_api('/api/v1/pluggy/webhooks/check','POST',{},authenticated=False)[0],401)
         self.assertEqual(self.call_api('/api/v1/pluggy/webhooks/check','POST',{'manual':True},authenticated=False)[0],401)
@@ -212,6 +217,21 @@ class ApiTests(unittest.TestCase):
         self.assertIsNotNone(self.call_api("/api/v1/weekly-summary")[1]["report"])
 
     def test_planning_and_performance_routes(self):
+        today = date.today().isoformat()
+        draft = {'scope':'personal','name':'Reserva exemplo','essential_expenses':'1500,00',
+                 'target_months':6,'monthly_contribution':'500,00','reserved_balance':'0,00',
+                 'balance_as_of':today,'next_contribution_on':today}
+        self.assertFalse(self.call_api('/api/v1/plans/reserve')[1]['configured'])
+        self.assertEqual(self.call_api('/api/v1/plans/reserve/preview','POST',draft)[0],200)
+        self.assertFalse(self.call_api('/api/v1/plans/reserve')[1]['configured'])
+        self.assertEqual(self.call_api('/api/v1/plans/reserve','POST',draft,
+                                       headers={'Origin':'https://other.example'})[0],403)
+        self.assertEqual(self.call_api('/api/v1/plans/reserve','POST',draft)[1]['projection']['target_cents'],900000)
+        self.assertTrue(self.call_api('/api/v1/plans/reserve')[1]['configured'])
+        self.assertFalse(self.call_api('/api/v1/plans/reserve?scope=business')[1]['configured'])
+        self.assertEqual(self.call_api('/api/v1/plans/reserve?scope=all')[0],400)
+        self.assertEqual(self.call_api('/api/v1/plans/reserve','DELETE')[0],200)
+        self.assertFalse(self.call_api('/api/v1/plans/reserve')[1]['configured'])
         status, health = self.call_api("/api/v1/data-health?month=2026-10")
         self.assertEqual(status, 200)
         self.assertTrue(health["has_gaps"])

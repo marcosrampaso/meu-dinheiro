@@ -332,6 +332,24 @@ class FinanceStore:
                 )
             """)
             connection.execute("""
+                CREATE TABLE IF NOT EXISTS reserve_plans (
+                    scope TEXT PRIMARY KEY CHECK (scope IN ('personal', 'business')),
+                    name TEXT NOT NULL,
+                    essential_cents INTEGER NOT NULL CHECK (essential_cents > 0),
+                    target_months INTEGER NOT NULL CHECK (target_months BETWEEN 1 AND 24),
+                    monthly_cents INTEGER NOT NULL CHECK (monthly_cents >= 0),
+                    reserved_cents INTEGER NOT NULL CHECK (reserved_cents >= 0),
+                    balance_as_of TEXT NOT NULL,
+                    next_contribution_on TEXT NOT NULL,
+                    contribution_day INTEGER NOT NULL CHECK (contribution_day BETWEEN 1 AND 31),
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            reserve_columns = {row["name"] for row in connection.execute("PRAGMA table_info(reserve_plans)")}
+            if "contribution_day" not in reserve_columns:
+                connection.execute("ALTER TABLE reserve_plans ADD COLUMN contribution_day INTEGER NOT NULL DEFAULT 1 CHECK (contribution_day BETWEEN 1 AND 31)")
+                connection.execute("UPDATE reserve_plans SET contribution_day=CAST(substr(next_contribution_on,9,2) AS INTEGER)")
+            connection.execute("""
                 CREATE TABLE IF NOT EXISTS investment_flow_classifications (
                     import_key TEXT PRIMARY KEY REFERENCES investment_entries(import_key),
                     classification TEXT NOT NULL CHECK (classification IN ('external', 'internal'))

@@ -31,6 +31,7 @@ body { background: radial-gradient(ellipse at 95% 0, #ece8ff80, transparent 35%)
 .workspace-tabs button:hover { background: #f6f5fd; color: var(--accent); }
 .workspace-tabs button[aria-selected="true"] { background: #eeeaff; color: #5f49da; box-shadow: none; }
 .workspace-tabs button:focus-visible { outline-color: #a79aff; }
+.nav-label-short { display: none; }
 .hero, .investment-hero { padding: 38px 0 28px; align-items: center; }
 .eyebrow { color: #807294; font-size: 10px; font-weight: 750; letter-spacing: .16em; margin-bottom: 11px; }
 h1, .investment-hero h1 { font-size: clamp(28px, 3.2vw, 42px); letter-spacing: -.055em; font-weight: 750; line-height: 1.15; }
@@ -127,6 +128,44 @@ input[type=checkbox], .checkbox-line input, .webhook-checkbox input { accent-col
 .portfolio-result-footer p { font-size: 11px; color: #9099ac; margin: 0; line-height: 1.6; }
 .portfolio-result-footer button { white-space: nowrap; font-size: 11px; }
 .performance-panel { scroll-margin-top: 170px; }
+.reserve-layout { display: grid; grid-template-columns: .85fr 1.15fr; align-items: start; gap: 22px; margin-top: 16px; }
+.reserve-builder { min-width: 0; }
+.reserve-builder .panel-header { align-items: center; }
+.reserve-builder form { gap: 20px; }
+.reserve-builder fieldset { min-width: 0; border: 0; border-top: 1px solid var(--line); margin: 0; padding: 19px 0 0; display: flex; flex-direction: column; gap: 15px; }
+.reserve-builder legend { color: #4c5972; font-size: 12px; font-weight: 650; padding: 0 10px 0 0; }
+.reserve-builder legend b { display: inline-grid; place-items: center; width: 23px; height: 23px; border-radius: 7px; background: #eee8ff; color: #8875cf; margin-right: 7px; font-size: 11px; }
+.reserve-builder .form-actions { flex-wrap: wrap; }
+.reserve-builder #plan-delete { margin-top: 18px; font-size: 11px; color: #b57970; }
+.reserve-dashboard { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.reserve-welcome { min-height: 320px; display: flex; flex-direction: column; justify-content: center; background: linear-gradient(145deg, #fcfbff, #f4f2ff); }
+.reserve-symbol { font-size: 58px; color: #9c89e8; margin-bottom: 25px; }
+.reserve-welcome h2 { max-width: 310px; font-size: 27px; line-height: 1.25; }
+.reserve-welcome p:not(.eyebrow) { color: var(--muted); font-size: 13px; line-height: 1.8; }
+.reserve-welcome small { font-size: 11px; line-height: 1.7; color: #a093b3; }
+.reserve-progress { background: linear-gradient(140deg, #fcfbff, #fff); }
+.reserve-amounts { display: flex; justify-content: space-between; gap: 15px; }
+.reserve-amounts>div { display: flex; flex-direction: column; gap: 9px; }
+.reserve-amounts>div:last-child { text-align: right; }
+.reserve-amounts span, .reserve-facts span { font-size: 11px; color: #8792a6; }
+.reserve-amounts strong { font-size: clamp(23px, 2.4vw, 32px); color: #6c55cf; font-variant-numeric: tabular-nums; letter-spacing: -.055em; }
+.reserve-amounts>div:last-child strong { color: #45506a; }
+.reserve-progress-track { height: 10px; border-radius: 99px; background: #ede9f8; overflow: hidden; margin-top: 20px; }
+#plan-progress-fill { height: 100%; width: 0; border-radius: 99px; background: linear-gradient(90deg, #8973e6, #40bd9a); }
+#plan-progress-caption { color: #a096b2; font-size: 11px; margin: 9px 0 23px; }
+.reserve-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 19px; padding-top: 20px; border-top: 1px solid var(--line); }
+.reserve-facts>div { display: flex; flex-direction: column; gap: 7px; }
+.reserve-facts strong { color: #4e5d78; font-size: 16px; font-variant-numeric: tabular-nums; }
+.reserve-milestones { display: flex; flex-direction: column; gap: 9px; margin-top: 23px; }
+.reserve-milestone { display: flex; justify-content: space-between; gap: 10px; padding: 12px; border: 1px solid #eeebf5; border-radius: 10px; background: #faf9fd; font-size: 11px; color: #95899f; }
+.reserve-milestone.achieved { border-color: #d7efe4; background: #f2faf6; color: #52a087; }
+.reserve-milestone strong { font-size: 11px; font-weight: 600; }
+.reserve-milestone span { white-space: nowrap; }
+.reserve-cash-check p:not(.chart-note) { font-size: 13px; line-height: 1.7; color: #788197; }
+.reserve-cash-check p.error { color: #c16b60; }
+#plan-cash-values { font-size: 12px; color: #6653af; line-height: 1.7; margin: 14px 0; }
+.reserve-cash-check>a { display: inline-block; margin-top: 16px; color: #8270c4; font-size: 11px; text-decoration: none; }
+#plan-status { margin: 0 0 16px; }
 .investment-row, .manual-investment-row, .invoice-row { border-color: #f0f2f7; padding: 15px 0; }
 .allocation-label, .investment-row strong, .manual-investment-row strong { color: #46556f; }
 .investment-row small, .manual-investment-row small { color: #929db0; }
@@ -161,6 +200,7 @@ footer { color: #a2aabd; font-size: 11px; padding: 40px 0 8px; }
   .metric { min-height: 155px; }
   .portfolio-result { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
   .portfolio-result-heading { grid-column: 1/-1; }
+  .reserve-layout { grid-template-columns: 1fr; }
   .hero, .investment-hero { align-items: flex-start; flex-direction: column; gap: 20px; }
   .local-badge { display: none; }
 }
@@ -177,6 +217,8 @@ footer { color: #a2aabd; font-size: 11px; padding: 40px 0 8px; }
   .workspace-tabs { top: 78px; gap: 3px; padding: 6px; border-radius: 13px; }
   .workspace-tabs button { flex: 1; min-width: 0; flex-direction: column; padding: 9px 3px; gap: 6px; font-size: 10px; justify-content: center; }
   .workspace-tabs svg { width: 15px; height: 15px; }
+  .nav-label-long { display: none; }
+  .nav-label-short { display: inline; }
   .hero, .investment-hero { padding: 29px 0 23px; }
   .view-controls { width: 100%; flex-direction: row; align-items: stretch; padding: 10px; }
   .month-picker { width: 50%; min-width: 0; }

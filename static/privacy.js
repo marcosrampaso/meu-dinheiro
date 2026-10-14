@@ -6,7 +6,7 @@ const financialPrivacy = (() => {
   const attributeValues = new WeakMap();
   const inputTypes = new WeakMap();
   const chartStates = new WeakMap();
-  const chartSelector = ".chart-area, .category-month-chart, .bar-track, .return-track, .budget-track";
+  const chartSelector = ".chart-area, .category-month-chart, .bar-track, .return-track, .budget-track, .reserve-progress-track";
   let hidden = false;
   try { hidden = window.localStorage.getItem(preferenceKey) === "true"; } catch (_) { /* Preference is optional. */ }
 
@@ -17,7 +17,7 @@ const financialPrivacy = (() => {
       .replace(/\b\d+(?:[.,]\d+)?\s+cotas\b/gi, "•••• cotas");
   }
 
-  function updateValue(key, read, write, saved) {
+  function updateValue(key, read, write, saved, masker = mask) {
     const current = read();
     const previous = saved.get(key);
     if (!hidden) {
@@ -26,14 +26,16 @@ const financialPrivacy = (() => {
       return;
     }
     if (previous && current === previous.masked) return;
-    const masked = mask(current);
+    const masked = masker(current);
     if (masked === current) { saved.delete(key); return; }
     saved.set(key, { original: current, masked });
     write(masked);
   }
 
   function updateText(node) {
-    updateValue(node, () => node.nodeValue, value => { node.nodeValue = value; }, textValues);
+    const privateValue = node.parentElement?.closest("[data-private-value]");
+    updateValue(node, () => node.nodeValue, value => { node.nodeValue = value; }, textValues,
+      privateValue ? value => value.trim() ? "••••" : value : mask);
   }
 
   function updateAttributes(element) {
@@ -79,7 +81,7 @@ const financialPrivacy = (() => {
   }
 
   const observation = { subtree: true, childList: true, characterData: true,
-    attributes: true, attributeFilter: ["title", "aria-label"] };
+    attributes: true, attributeFilter: ["title", "aria-label", "data-private-value"] };
   const observer = new MutationObserver(apply);
   function apply() {
     // Pause our own mutations to avoid an observer loop. New API renders and

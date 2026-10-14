@@ -34,3 +34,5 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Privacidade e layout responsivo
         run: node tests/test_privacy_browser.js
+      - name: Criar e acompanhar plano de reserva
+        run: node tests/test_plans_browser.js

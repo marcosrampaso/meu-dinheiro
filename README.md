@@ -35,6 +35,7 @@ Na aba Investimentos, **O que seu dinheiro rendeu** destaca ganho/perda em reais
 ## Funcionalidades
 
 - Cadastro, edição e exclusão de receitas e despesas, com valores armazenados em centavos inteiros.
+- Aba **Planos** para criar e revisar uma reserva de emergência Pessoal ou PJ, simular aportes e acompanhar a meta.
 - Visões **Pessoal**, **PJ** e **Tudo**. Transferências identificadas entre contas próprias não duplicam a receita consolidada.
 - Importação de faturas PDF de cartão e extratos CSV/OFX, com prévia e proteção contra importação repetida.
 - Importação de extratos CSV da XP com prévia e conciliação de PIX enviados pelo Inter; o histórico da XP fica separado do fluxo de caixa e dos gráficos de gastos.
@@ -148,6 +149,10 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | DELETE | `/calendar/{id}` | Remove uma recorrência |
 | POST | `/calendar/cards` | Configura vencimento de cartão (`source`, `scope`, `due_day`, `month_offset`) |
 | DELETE | `/calendar/cards/{id}` | Remove a configuração de vencimento do cartão |
+| GET | `/plans/reserve?scope=personal` | Plano da reserva, progresso, projeção mensal e conferência parcial do caixa |
+| POST | `/plans/reserve/preview` | Simula o plano sem salvar |
+| POST | `/plans/reserve` | Cria ou atualiza o plano para `personal` ou `business` |
+| DELETE | `/plans/reserve?scope=personal` | Exclui somente o plano; preserva lançamentos e investimentos |
 | GET | `/transactions?month=AAAA-MM&scope=business` | Lista de lançamentos |
 | GET | `/transactions/{id}` | Um lançamento |
 | POST | `/transactions` | Criar lançamento |
@@ -201,6 +206,18 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 
 As rotas da XP recebem `filename` e `content` do CSV no mesmo JSON. O formato esperado tem as colunas `Data;Hora;Descricao;Valor;Saldo`.
 
+## Crie seu plano
+
+Abra **Planos**, escolha Pessoal ou PJ e preencha despesas essenciais mensais, meses de proteção, aporte mensal, saldo já reservado, data de confirmação do saldo e próximo aporte. **Simular** calcula sem salvar; **Criar meu plano / Salvar ajustes** guarda um plano por área no SQLite local. Atualize o saldo manualmente quando ele mudar. O dinheiro reservado é confirmado por você: o app não atribui automaticamente o patrimônio da XP ou os saldos bancários à reserva.
+
+A meta é `despesas essenciais × meses de proteção`. A previsão conta os aportes necessários para cobrir o restante e reduz o último aporte ao valor que falta. Ela preserva o dia mensal, ajustando meses menores ao último dia, e mostra até 24 aportes no gráfico. Não presume rentabilidade, inflação, taxas ou novos resgates. Zero de aporte pausa a previsão; alcançar a meta encerra os aportes projetados. As simulações e o saldo informado são apresentados separadamente. Salvar ou excluir o plano não cria transferências, lançamentos nem ordens de investimento.
+
+A **Conferência de caixa** mostra um cenário parcial das próximas seis semanas: saldo de contas da área, vencimentos cadastrados e os novos aportes propostos. Pode alertar para saldo negativo, base desatualizada, ausência de saldo ou faturas parciais. Não inclui despesas não cadastradas, não confirma receitas e não identifica automaticamente dinheiro já reservado dentro das contas; saldo positivo não comprova capacidade de aporte. Revise a agenda antes de usar a simulação.
+
+### Ideia para depois
+
+Previsão de gastos por métodos estatísticos ou aprendizagem de máquina, após validar cobertura, classificação e quantidade de histórico. O plano atual usa cálculos determinísticos.
+
 ## Desenvolvimento
 
 ```bash
@@ -222,5 +239,7 @@ npm ci
 npx playwright install chromium
 npm test
 ```
+
+O teste de Planos inicia um servidor temporário com dados fictícios e autenticação simulada. Não usa o banco real nem o Touch ID do Mac. Defina `PYTHON_BIN=.venv/bin/python` para executá-lo com o ambiente virtual local.
 
 O pacote [`pypdf`](https://pypdf.readthedocs.io/) incluído em `vendor` mantém sua licença em [`vendor/PYPDF-LICENSE.txt`](vendor/PYPDF-LICENSE.txt).

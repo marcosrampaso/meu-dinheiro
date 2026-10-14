@@ -33,6 +33,7 @@ from pluggy_xp import PluggyXP, PluggyError
 from pluggy_inter import PluggyInter
 from local_auth import LocalAuth, LocalAuthError, SESSION_SECONDS
 from webhook_client import WebhookClient, RelayError
+from reserve_plan import reserve_overview, preview_reserve, save_reserve, delete_reserve
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -41,6 +42,7 @@ STATIC_FILES = {
     "/styles.css": (BASE_DIR / "static" / "styles.css", "text/css; charset=utf-8"),
     "/dashboard.css": (BASE_DIR / "static" / "dashboard.css", "text/css; charset=utf-8"),
     "/privacy.js": (BASE_DIR / "static" / "privacy.js", "text/javascript; charset=utf-8"),
+    "/plans.js": (BASE_DIR / "static" / "plans.js", "text/javascript; charset=utf-8"),
     "/auth.js": (BASE_DIR / "static" / "auth.js", "text/javascript; charset=utf-8"),
     "/app.js": (BASE_DIR / "static" / "app.js", "text/javascript; charset=utf-8"),
     "/import.js": (BASE_DIR / "static" / "import.js", "text/javascript; charset=utf-8"),
@@ -249,6 +251,9 @@ class FinanceHandler(BaseHTTPRequestHandler):
             return
         if path == API_PREFIX + "/calendar":
             self._json(HTTPStatus.OK, calendar_overview(self.server.store, self._scope(query)))
+            return
+        if path == API_PREFIX + "/plans/reserve":
+            self._json(HTTPStatus.OK, reserve_overview(self.server.store, self._scope(query, allow_all=False)))
             return
         if path == API_PREFIX + "/investments/overview":
             raw_months = query.get("months", ["6"])[0]
@@ -469,6 +474,12 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if path == API_PREFIX + "/budgets":
             self._json(HTTPStatus.CREATED, save_budget(self.server.store, self._read_json()))
             return
+        if path == API_PREFIX + "/plans/reserve/preview":
+            self._json(HTTPStatus.OK, preview_reserve(self.server.store, self._read_json()))
+            return
+        if path == API_PREFIX + "/plans/reserve":
+            self._json(HTTPStatus.OK, save_reserve(self.server.store, self._read_json()))
+            return
         if path == API_PREFIX + "/calendar":
             self._json(HTTPStatus.CREATED, save_commitment(self.server.store, self._read_json()))
             return
@@ -556,6 +567,10 @@ class FinanceHandler(BaseHTTPRequestHandler):
             return
         if path == API_PREFIX + "/budgets":
             delete_budget(self.server.store, self._scope(query, allow_all=False), query.get("category", [""])[0])
+            self._json(HTTPStatus.OK, {"deleted": True})
+            return
+        if path == API_PREFIX + "/plans/reserve":
+            delete_reserve(self.server.store, self._scope(query, allow_all=False))
             self._json(HTTPStatus.OK, {"deleted": True})
             return
         if path.startswith(API_PREFIX + "/calendar/"):

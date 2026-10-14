@@ -9,6 +9,8 @@ const financesView = document.querySelector("#finances-view");
 const investmentsView = document.querySelector("#investments-view");
 const newsView = document.querySelector("#news-view");
 const settingsView = document.querySelector("#settings-view");
+const plansTab = document.querySelector("#plans-tab");
+const plansView = document.querySelector("#plans-view");
 let investmentRequestId = 0;
 let cdiRequestId = 0;
 let cdiInitialRetries = 0;
@@ -86,34 +88,52 @@ function setArea(area) {
   const showInvestments = area === "investments";
   const showNews = area === "news";
   const showSettings = area === "settings";
+  const showPlans = area === "plans";
   financesView.hidden = area !== "finances";
   investmentsView.hidden = !showInvestments;
   newsView.hidden = !showNews;
   settingsView.hidden = !showSettings;
+  plansView.hidden = !showPlans;
   financesTab.setAttribute("aria-selected", String(area === "finances"));
   investmentsTab.setAttribute("aria-selected", String(showInvestments));
   newsTab.setAttribute("aria-selected", String(showNews));
   settingsTab.setAttribute("aria-selected", String(showSettings));
+  plansTab.setAttribute("aria-selected", String(showPlans));
   financesTab.tabIndex = area === "finances" ? 0 : -1;
   investmentsTab.tabIndex = showInvestments ? 0 : -1;
   newsTab.tabIndex = showNews ? 0 : -1;
   settingsTab.tabIndex = showSettings ? 0 : -1;
+  plansTab.tabIndex = showPlans ? 0 : -1;
   if (showInvestments) { refreshInvestments(); refreshCDI(); document.dispatchEvent(new Event("investments-view-resume")); }
   if (showNews) document.dispatchEvent(new Event("news-view-resume"));
+  if (showPlans) document.dispatchEvent(new Event("plans-view-resume"));
   if (showSettings) { void refreshMarketReturns(); document.dispatchEvent(new Event("settings-view-resume")); }
 }
 
 function syncAreaFromHash() {
   setArea(window.location.hash === "#investimentos" ? "investments" :
+    window.location.hash === "#planos" ? "plans" :
     window.location.hash === "#noticias" ? "news" :
       window.location.hash === "#configuracoes" ? "settings" : "finances");
 }
 
 financesTab.addEventListener("click", () => { window.location.hash = "financas"; syncAreaFromHash(); });
+plansTab.addEventListener("click", () => { window.location.hash = "planos"; syncAreaFromHash(); });
 investmentsTab.addEventListener("click", () => { window.location.hash = "investimentos"; syncAreaFromHash(); });
 newsTab.addEventListener("click", () => { window.location.hash = "noticias"; syncAreaFromHash(); });
 settingsTab.addEventListener("click", () => { window.location.hash = "configuracoes"; syncAreaFromHash(); });
 window.addEventListener("hashchange", syncAreaFromHash);
+document.querySelector(".workspace-tabs").addEventListener("keydown", event => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  const tabs = [financesTab, investmentsTab, plansTab, newsTab, settingsTab];
+  const current = tabs.indexOf(event.target.closest('[role="tab"]'));
+  if (current < 0) return;
+  const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 :
+    (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  event.preventDefault();
+  tabs[next].click();
+  tabs[next].focus();
+});
 
 function drawInvestmentCumulative(rows) {
   const target = document.querySelector("#investment-cumulative-chart");
