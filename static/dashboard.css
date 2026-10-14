@@ -50,7 +50,7 @@ h2 { font-size: 20px; color: var(--ink); letter-spacing: -.035em; }
 .metric-balance { background: linear-gradient(135deg, #253453, #18233b); color: #fff; border: 0; box-shadow: 0 12px 24px #18233b1a; }
 .metric-balance::before { content: ""; position: absolute; width: 160px; height: 160px; border: 25px solid #ffffff06; border-radius: 50%; right: -75px; top: -35px; pointer-events: none; }
 .metric-balance span, .metric-balance small { color: #adbcd8; }
-.metric-balance strong { color: #fff; }
+.metric.metric-balance strong { color: #fff; }
 .panel { border: 1px solid var(--line); border-radius: 20px; padding: 26px; background: #fff; box-shadow: 0 4px 20px #26345403; }
 .panel-header { margin-bottom: 22px; align-items: flex-start; }
 .panel-header p, .panel-intro, .helper, .import-tip, .chart-note { color: var(--muted); line-height: 1.65; }
