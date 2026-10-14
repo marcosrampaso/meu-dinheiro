@@ -39,6 +39,8 @@ def _http_json(method: str, path: str, payload: dict | None = None, api_key: str
     request = Request(API_BASE + path, data=body, headers=headers, method=method)
     try:
         with urlopen(request, timeout=20) as response:
+            if response.status == 204:
+                return {'results':[],'totalPages':0}
             result = json.load(response)
     except HTTPError as exc:
         if exc.code in (401, 403):
@@ -177,6 +179,8 @@ class PluggyXP:
                 "note": "Prévia dos ativos. Saldo disponível, proventos e cobertura precisam ser conferidos antes da sincronização automática."}
 
     def preview_sync(self, http_json=_http_json) -> dict:
+        from pluggy_sync import revision
+        current_revision = revision(self.store,'XP')
         from pluggy_inter import _pages, _transactions, _iso_date, _cents as signed_cents
         from manual_investments import imported_flow_kind
         config = self.load_config()
@@ -276,7 +280,7 @@ class PluggyXP:
         token = secrets.token_urlsafe(24)
         with self._sync_lock:
             self._sync_pending = {"token": token, "expires": time.monotonic()+600, "entries": entries,
-                                  "snapshot": snapshot, "period": period}
+                                  "snapshot": snapshot, "period": period, "revision":current_revision}
         return {"preview_token": token, "checked_at": checked_at, "period": period, "count": len(entries),
                 "replaced_count": replaced, "snapshot": snapshot,
                 "note": "A Pluggy atualiza os ativos e as movimentações e guarda uma posição para o rendimento automático. A comparação usa ativos + saldo disponível e desconta aportes/saques externos. Proventos recebidos já compõem o saldo; proventos a receber estão fora dessa base. Custos ausentes usam a referência local quando possível."}

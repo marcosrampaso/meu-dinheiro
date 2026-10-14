@@ -194,6 +194,7 @@ class FinanceStore:
                 source TEXT NOT NULL, scope TEXT NOT NULL, starts_on TEXT NOT NULL, ends_on TEXT NOT NULL,
                 checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY(source,scope,starts_on,ends_on))""")
+            connection.execute("CREATE TABLE IF NOT EXISTS integration_revisions (source TEXT PRIMARY KEY,revision INTEGER NOT NULL)")
             connection.execute("""CREATE TABLE IF NOT EXISTS pluggy_inter_policy (
                 singleton INTEGER PRIMARY KEY CHECK(singleton=1),
                 starts_on TEXT NOT NULL, card_starts_on TEXT NOT NULL)""")

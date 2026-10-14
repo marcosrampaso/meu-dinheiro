@@ -14,6 +14,7 @@ from chatgpt_auth import ChatGPTAuth
 from finance import FinanceStore
 from pluggy_xp import PluggyXP
 from pluggy_inter import PluggyInter
+from webhook_client import WebhookClient
 
 
 XP_CSV = ("Data;Hora;Descricao;Valor;Saldo\n"
@@ -62,6 +63,7 @@ class ApiTests(unittest.TestCase):
         self.server.cdi = CDIBenchmark(self.store)
         self.server.pluggy = PluggyXP(self.store, Path(self.directory.name) / "pluggy-xp.json")
         self.server.pluggy_inter = PluggyInter(self.store, self.server.pluggy)
+        self.server.webhooks = WebhookClient(self.store,self.server.pluggy,self.server.pluggy_inter,Path(self.directory.name)/'relay.json')
         self.server.local_auth = FakeLocalAuth()
 
     def tearDown(self):
@@ -86,6 +88,9 @@ class ApiTests(unittest.TestCase):
         return status, content
 
     def test_touch_id_gate_covers_reads_and_writes(self):
+        self.assertEqual(self.call_api('/api/v1/pluggy/webhooks/status',authenticated=False)[0],401)
+        self.assertEqual(self.call_api('/api/v1/pluggy/webhooks/check','POST',{},authenticated=False)[0],401)
+        self.assertEqual(self.call_api('/api/v1/pluggy/webhooks/setup','POST',{},authenticated=False)[0],401)
         self.assertEqual(self.call_api("/api/v1/summary?month=2026-10", authenticated=False)[0], 401)
         self.assertEqual(self.call_api("/api/v1/investments/overview", authenticated=False)[0], 401)
         self.assertEqual(self.call_api("/api/v1/transactions", "POST", {

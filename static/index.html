@@ -19,6 +19,7 @@
   <script src="/performance.js" defer></script>
   <script src="/manual-investments.js" defer></script>
   <script src="/pluggy-xp.js" defer></script>
+  <script src="/webhooks.js" defer></script>
   <script src="/categories.js" defer></script>
   <script src="/manual-card.js" defer></script>
 </head>
@@ -304,6 +305,15 @@
       <section id="settings-view" class="app-view" role="tabpanel" aria-labelledby="settings-tab" hidden>
         <div class="investment-hero"><div><p class="eyebrow">ACESSOS</p><h1>Configurações</h1><p>Gerencie as conexões usadas pela categorização, notícias e investimentos.</p></div></div>
         <div class="settings-grid">
+          <section class="panel settings-wide" aria-labelledby="webhooks-title">
+            <div class="panel-header"><div><p class="eyebrow">ATUALIZAÇÕES AUTOMÁTICAS</p><h2 id="webhooks-title">Avisos da Pluggy</h2></div><span id="webhook-state"></span></div>
+            <p class="panel-intro">Pluggy → receptor na Railway → este Mac. O receptor guarda os avisos enquanto o app está fechado. Ao abrir e desbloquear com Touch ID, o app consulta os dados novos de XP e Inter.</p>
+            <details><summary>1. Preparar a Railway</summary><p class="chart-note">Publique a pasta <strong>relay</strong> do repositório e adicione PostgreSQL. Gere as chaves abaixo e copie as três variáveis para o receptor. A DATABASE_URL vem do PostgreSQL da Railway.</p><button id="webhook-setup" class="secondary-button" type="button">Gerar / renovar chaves do receptor</button><div id="webhook-setup-output" hidden><p class="chart-note">Guarde estas chaves nas Variables da Railway. Elas ficam visíveis somente nesta sessão. Renovar exige atualizar também o receptor e o registro na Pluggy.</p><textarea id="webhook-variables" rows="5" readonly aria-label="Variáveis privadas para a Railway"></textarea><button id="webhook-hide-keys" class="text-button" type="button">Ocultar chaves</button></div></details>
+            <form id="webhook-form" class="planning-form"><label>2. URL pública da Railway<input name="url" type="url" placeholder="https://seu-receptor.up.railway.app" required></label><label>Chave de leitura<input name="read_token" type="password" autocomplete="off" placeholder="Deixe vazio se gerou as chaves neste Mac"></label><label class="webhook-checkbox"><input name="enabled" type="checkbox"> Sincronizar ao receber avisos, com o app desbloqueado</label><button class="secondary-button" type="submit">Salvar receptor</button></form>
+            <div class="pluggy-actions"><button id="webhook-register" class="primary-button" type="button" disabled>3. Registrar avisos na Pluggy</button><button id="webhook-check" class="secondary-button" type="button" disabled>Conferir avisos agora</button><button id="webhook-disable" class="text-button" type="button" hidden>Desconectar receptor deste Mac</button></div>
+            <div id="webhook-status" class="import-status" role="status" aria-live="polite"></div><div id="webhook-notices"></div>
+            <p class="chart-note">O app consulta e grava os valores financeiros no Mac. As credenciais de consulta à Pluggy ficam locais. A Railway guarda tipos de evento, itemIds, eventIds e horários. A atualização depende de a Pluggy receber dados do banco.</p>
+          </section>
           <section class="panel" aria-labelledby="chatgpt-settings-title">
             <div class="panel-header"><div><p class="eyebrow">IA</p><h2 id="chatgpt-settings-title">ChatGPT</h2></div></div>
             <p class="panel-intro">A mesma conexão é usada para sugerir categorias, gerar o resumo semanal e pesquisar notícias dos seus ativos.</p>

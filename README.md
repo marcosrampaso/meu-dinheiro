@@ -89,7 +89,7 @@ Em **Seu rendimento contra o CDI**, escolha **Automático · Pluggy**. Cada sinc
 
 Proventos **recebidos** identificados no extrato são mostrados como parte do ganho; já estão refletidos no saldo, portanto não são somados novamente ao patrimônio. Proventos **a receber** permanecem fora da base automática. Custos de aquisição não são necessários para a rentabilidade entre posições; o quadro **Ganho acumulado por ativo** continua usando o custo de referência para mostrar a diferença da posição. Cotações de datas anteriores à consulta são sinalizadas. O cálculo é uma estimativa dos valores fornecidos, não a rentabilidade oficial da XP.
 
-**Saldos completos / manuais** mantém o histórico informado anteriormente, sem misturá-lo à base automática. Se as taxas CDI estiverem indisponíveis, o app exibe o ganho da carteira e deixa a referência aguardando dados. Sincronizações da XP são iniciadas em Configurações; a consulta de cotações públicas a cada três horas não sincroniza a conta XP. Webhooks ainda não estão configurados.
+**Saldos completos / manuais** mantém o histórico informado anteriormente, sem misturá-lo à base automática. Se as taxas CDI estiverem indisponíveis, o app exibe o ganho da carteira e deixa a referência aguardando dados. Sincronizações da XP são iniciadas em Configurações; a consulta de cotações públicas a cada três horas não sincroniza a conta XP. O [receptor hospedado de webhooks](relay/README.md) permite sincronizar também pelos avisos da Pluggy, após configurar a Railway e registrar os eventos em Configurações.
 
 O gráfico separado **CDI acumulado** consulta a série diária 12 do [Banco Central](https://www3.bcb.gov.br/sgspub/consultarvalores/consultarValoresSeries.do?method=consultarSeries&series=12), soma os dias úteis por juros compostos e permite escolher 1, 3, 6 ou 12 meses. A consulta começa ao iniciar o servidor e se repete a cada três horas; os valores públicos ficam em cache no SQLite. O gráfico mostra a data do último dado publicado e sinaliza quando a atualização falha ou está atrasada. É uma referência percentual bruta, sem impostos ou taxas; não representa o rendimento da sua carteira XP.
 
@@ -171,6 +171,11 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | POST | `/investments/pluggy/import` | Aplica a posição e substitui o período XP a partir do token revisado |
 | POST | `/accounts/pluggy/inter/preview` | Prévia de conta, cartão e datas que substituirão os registros do Inter pessoal |
 | POST | `/accounts/pluggy/inter/import` | Substitui o período revisado pelo token temporário, preservando categorias reconhecidas |
+| GET | `/pluggy/webhooks/status` | Estado do receptor e últimos avisos, sem devolver chaves |
+| POST | `/pluggy/webhooks/setup` | Gera duas chaves locais e os itemIds para configurar a Railway |
+| POST/DELETE | `/pluggy/webhooks/config` | Configura o receptor HTTPS ou desconecta o consumidor local |
+| POST | `/pluggy/webhooks/register` | Registra os cinco tipos de evento na Pluggy |
+| POST | `/pluggy/webhooks/check` | Consome avisos e sincroniza conexões atualizadas |
 | GET/POST | `/weekly-summary` | Totais semanais agregados e geração sob demanda de insights com Luna; `scope` aceita `personal`, `business` ou `all` |
 | GET | `/investments/market-returns` | Estimativas por ativo, datas e fontes das cotações, estado do token e da consulta |
 | POST | `/investments/brapi-token` | Salvar token local da brapi (`{"token":"..."}`) |
@@ -193,6 +198,7 @@ As rotas da XP recebem `filename` e `content` do CSV no mesmo JSON. O formato es
 ## Desenvolvimento
 
 ```bash
+.venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/python -m unittest discover -s tests -v
 node --check static/app.js
 node --check static/import.js

@@ -115,6 +115,16 @@ class PluggyXPTests(unittest.TestCase):
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM investment_observations").fetchone()[0],0)
         self.assertTrue(list(self.integration.store.path.parent.glob("*.bak")))
 
+    def test_old_manual_preview_cannot_overwrite_a_new_webhook_sync(self):
+        old = self.integration.preview_sync(self.sync_http)
+        automatic = PluggyXP(self.integration.store,self.integration.config_path)
+        current = automatic.preview_sync(self.sync_http)
+        automatic.import_preview(current['preview_token'])
+        with self.assertRaisesRegex(PluggyError,'após esta prévia'):
+            self.integration.import_preview(old['preview_token'])
+        with self.integration.store._connect() as c:
+            self.assertEqual(c.execute('SELECT COUNT(*) FROM investment_entries').fetchone()[0],1)
+
 
 if __name__ == "__main__":
     unittest.main()

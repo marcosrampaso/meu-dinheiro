@@ -143,6 +143,8 @@ class PluggyInter:
             self._pending = None
 
     def preview(self, http_json=_http_json) -> dict:
+        from pluggy_sync import revision
+        current_revision = revision(self.store,'Inter')
         config = self.pluggy.load_config()
         item_id = config.get("inter_item_id")
         if not item_id:
@@ -258,7 +260,7 @@ class PluggyInter:
         token = secrets.token_urlsafe(24)
         with self._lock:
             self._pending = {"token": token, "expires": time.monotonic() + 600,
-                             "items": prepared, "balance": bank_balance, "periods": periods}
+                             "items": prepared, "balance": bank_balance, "periods": periods, "revision":current_revision}
             self._pending["starts_on"] = starts_on
             self._pending["card_starts_on"] = card_starts_on
         from pluggy_sync import replacement_counts

@@ -1,0 +1,6 @@
+*
+!requirements.txt
+!Dockerfile
+!__init__.py
+!app.py
+!store.py

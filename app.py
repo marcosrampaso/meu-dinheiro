@@ -32,6 +32,7 @@ from manual_investments import (manual_overview, save_manual_flow, delete_manual
 from pluggy_xp import PluggyXP, PluggyError
 from pluggy_inter import PluggyInter
 from local_auth import LocalAuth, LocalAuthError, SESSION_SECONDS
+from webhook_client import WebhookClient, RelayError
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -50,6 +51,7 @@ STATIC_FILES = {
     "/performance.js": (BASE_DIR / "static" / "performance.js", "text/javascript; charset=utf-8"),
     "/manual-investments.js": (BASE_DIR / "static" / "manual-investments.js", "text/javascript; charset=utf-8"),
     "/pluggy-xp.js": (BASE_DIR / "static" / "pluggy-xp.js", "text/javascript; charset=utf-8"),
+    "/webhooks.js": (BASE_DIR / "static" / "webhooks.js", "text/javascript; charset=utf-8"),
     "/charts.js": (BASE_DIR / "static" / "charts.js", "text/javascript; charset=utf-8"),
     "/categories.js": (BASE_DIR / "static" / "categories.js", "text/javascript; charset=utf-8"),
     "/manual-card.js": (BASE_DIR / "static" / "manual-card.js", "text/javascript; charset=utf-8"),
@@ -66,6 +68,7 @@ class FinanceHTTPServer(ThreadingHTTPServer):
         self.market = MarketQuotes(store, store.path.parent / "brapi-token")
         self.pluggy = PluggyXP(store, store.path.parent / "pluggy-xp.json")
         self.pluggy_inter = PluggyInter(store, self.pluggy)
+        self.webhooks = WebhookClient(store,self.pluggy,self.pluggy_inter,store.path.parent/'pluggy-relay.json')
         self.market.start()
         self.cdi = CDIBenchmark(store)
         self.cdi.start()
@@ -117,6 +120,8 @@ class FinanceHandler(BaseHTTPRequestHandler):
         except WeeklyError as exc:
             self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
         except PluggyError as exc:
+            self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
+        except RelayError as exc:
             self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
         except LocalAuthError as exc:
             self._json(HTTPStatus.FORBIDDEN, {"error": str(exc)})
@@ -265,6 +270,9 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if path == API_PREFIX + "/investments/manual":
             self._json(HTTPStatus.OK, manual_overview(self.server.store))
             return
+        if path == API_PREFIX + '/pluggy/webhooks/status':
+            self._json(HTTPStatus.OK,self.server.webhooks.status())
+            return
         if path == API_PREFIX + "/investments/pluggy/status":
             with self.server.store._connect() as connection:
                 syncs = {row["source"]: row["updated"] for row in connection.execute(
@@ -393,6 +401,26 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if path == API_PREFIX + "/investments/pluggy/preview":
             self._json(HTTPStatus.OK, self.server.pluggy.preview())
             return
+        if path == API_PREFIX + '/pluggy/webhooks/setup':
+            self._read_json()
+            self._json(HTTPStatus.OK,self.server.webhooks.generate_setup())
+            return
+        if path == API_PREFIX + '/pluggy/webhooks/config':
+            self.server.webhooks.save_config(self._read_json())
+            self._json(HTTPStatus.OK,self.server.webhooks.status())
+            return
+        if path == API_PREFIX + '/pluggy/webhooks/register':
+            self._read_json()
+            self._json(HTTPStatus.OK,self.server.webhooks.register())
+            return
+        if path == API_PREFIX + '/pluggy/webhooks/check':
+            self._read_json()
+            result = self.server.webhooks.check()
+            if result['synchronized']:
+                self.server.market.wake()
+                self.server.cdi.wake()
+            self._json(HTTPStatus.OK,result)
+            return
         if path == API_PREFIX + "/investments/pluggy/sync-preview":
             self._json(HTTPStatus.OK, self.server.pluggy.preview_sync())
             return
@@ -520,6 +548,10 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if not self._require_same_origin():
             return
         path, query = self._route()
+        if path == API_PREFIX + '/pluggy/webhooks/config':
+            self.server.webhooks.delete_config()
+            self._json(HTTPStatus.OK,{'configured':False})
+            return
         if path == API_PREFIX + "/budgets":
             delete_budget(self.server.store, self._scope(query, allow_all=False), query.get("category", [""])[0])
             self._json(HTTPStatus.OK, {"deleted": True})

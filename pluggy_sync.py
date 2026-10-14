@@ -9,6 +9,22 @@ from datetime import date, datetime, timezone, timedelta
 from finance import merchant_key, _description_words
 
 
+def revision(store, source):
+    with store._connect() as c:
+        row = c.execute('SELECT revision FROM integration_revisions WHERE source=?',(source,)).fetchone()
+    return row[0] if row else 0
+
+
+def advance_revision(connection, source, expected):
+    from pluggy_xp import PluggyError
+    row = connection.execute('SELECT revision FROM integration_revisions WHERE source=?',(source,)).fetchone()
+    current = row[0] if row else 0
+    if current != expected:
+        raise PluggyError('Os dados foram sincronizados após esta prévia. Consulte novamente antes de importar.')
+    connection.execute('INSERT INTO integration_revisions VALUES (?,?) ON CONFLICT(source) DO UPDATE SET revision=excluded.revision',
+                       (source,current+1))
+
+
 def covered_start(store, source, scope, remote_start):
     """Retain the known interval if the oldest remote row was deleted on refresh."""
     with store._connect() as connection:
@@ -136,6 +152,7 @@ def apply_inter(store, pending):
     preserved = 0
     with store._connect() as connection:
         connection.execute("BEGIN IMMEDIATE")
+        advance_revision(connection,'Inter',pending['revision'])
         connection.execute("INSERT OR IGNORE INTO pluggy_inter_policy VALUES (1,?,?)",
                            (pending["starts_on"], pending['card_starts_on']))
         old = _old_inter(connection, pending["periods"])
@@ -193,6 +210,7 @@ def apply_xp(store, pending):
     entries, snapshot = pending["entries"], pending["snapshot"]
     with store._connect() as connection:
         connection.execute("BEGIN IMMEDIATE")
+        advance_revision(connection,'XP',pending['revision'])
         old = []
         if pending["period"]:
             period = pending["period"]

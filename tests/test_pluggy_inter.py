@@ -185,6 +185,15 @@ class PluggyInterTests(unittest.TestCase):
         with self.store._connect() as connection:
             self.assertEqual(connection.execute('SELECT COUNT(*) FROM transactions').fetchone()[0],0)
 
+    def test_old_preview_cannot_overwrite_newer_inter_data(self):
+        old = self.inter.preview(self.fake_http)
+        automatic = PluggyInter(self.store,self.pluggy)
+        current = automatic.preview(self.fake_http)
+        automatic.import_preview(current['preview_token'])
+        with self.assertRaisesRegex(PluggyError,'após esta prévia'):
+            self.inter.import_preview(old['preview_token'])
+        self.assertEqual(len(self.store.list_month('2026-10')),4)
+
     def test_investment_application_and_cashback_are_not_consumption(self):
         self.assertEqual(_bank_classification({"operationType":"OUTROS"},
             "Aplicação - Cdb Exemplo Banco", "expense"),("Movimento de investimento",True))
