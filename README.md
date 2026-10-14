@@ -200,6 +200,7 @@ As rotas da XP recebem `filename` e `content` do CSV no mesmo JSON. O formato es
 ```bash
 .venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/python -m unittest discover -s tests -v
+node tests/test_browser_scripts.js
 node --check static/app.js
 node --check static/import.js
 node --check static/charts.js

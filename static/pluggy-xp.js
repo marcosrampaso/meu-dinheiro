@@ -1,6 +1,6 @@
 const pluggyForm = document.querySelector("#pluggy-xp-form");
 const pluggyPreviewButton = document.querySelector("#pluggy-xp-preview-button");
-const xpImportButton = document.querySelector("#pluggy-xp-import-button");
+const pluggyXpImportButton = document.querySelector("#pluggy-xp-import-button");
 const pluggyRemoveButton = document.querySelector("#pluggy-xp-remove");
 const interPreviewButton = document.querySelector("#pluggy-inter-preview-button");
 const interImportButton = document.querySelector("#pluggy-inter-import-button");
@@ -127,7 +127,7 @@ pluggyForm.addEventListener("submit", async event => {
     pluggyForm.reset();
     clearInterPreview();
     xpPreviewToken = null;
-    xpImportButton.disabled = true;
+    pluggyXpImportButton.disabled = true;
     pluggyStatus("Conexão salva. Confira XP e/ou Inter pelos botões abaixo.");
     await refreshPluggyStatus();
   } catch (error) { pluggyStatus(error.message, true); }
@@ -139,19 +139,19 @@ pluggyPreviewButton.addEventListener("click", async () => {
   pluggyStatus("Consultando a Pluggy...");
   try {
     xpPreviewToken = null;
-    xpImportButton.disabled = true;
+    pluggyXpImportButton.disabled = true;
     const data = await request("/investments/pluggy/sync-preview", { method: "POST", body: "{}" });
     renderPluggyPreview(data);
     xpPreviewToken = data.preview_token;
-    xpImportButton.disabled = false;
+    pluggyXpImportButton.disabled = false;
     pluggyStatus("Confira as datas e os ativos. Ao sincronizar, a Pluggy substituirá o período mostrado.");
   } catch (error) { pluggyStatus(error.message, true); }
   finally { await refreshPluggyStatus(); }
 });
 
-xpImportButton.addEventListener("click", async () => {
+pluggyXpImportButton.addEventListener("click", async () => {
   if (!xpPreviewToken) return;
-  xpImportButton.disabled = true;
+  pluggyXpImportButton.disabled = true;
   try {
     const result = await request("/investments/pluggy/import", {
       method: "POST", body: JSON.stringify({ preview_token: xpPreviewToken }),
@@ -171,7 +171,7 @@ pluggyRemoveButton.addEventListener("click", async () => {
     document.querySelector("#pluggy-xp-preview").hidden = true;
     clearInterPreview();
     xpPreviewToken = null;
-    xpImportButton.disabled = true;
+    pluggyXpImportButton.disabled = true;
     pluggyStatus("Credenciais removidas deste computador.");
     await refreshPluggyStatus();
   } catch (error) { pluggyStatus(error.message, true); }

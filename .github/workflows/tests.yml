@@ -26,3 +26,5 @@ jobs:
           node --check static/charts.js
           node --check static/categories.js
           node --check static/webhooks.js
+      - name: Scripts compartilhados e avisos da Pluggy
+        run: node tests/test_browser_scripts.js
