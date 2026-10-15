@@ -152,6 +152,7 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | GET | `/data-health?month=AAAA-MM&scope=personal` | Cobertura dos extratos e estado das faturas conhecidas |
 | GET/POST/DELETE | `/budgets` | Limites por categoria; POST recebe `scope`, `category`, `limit`; DELETE usa `scope` e `category` na query |
 | GET/POST | `/calendar` | Vencimentos, recorrências e projeção de 42 dias; POST cria uma recorrência |
+| PUT | `/calendar/{id}` | Edita receita/despesa mensal prevista; início e último mês opcional |
 | DELETE | `/calendar/{id}` | Remove uma recorrência |
 | POST | `/calendar/cards` | Configura vencimento de cartão (`source`, `scope`, `due_day`, `month_offset`) |
 | DELETE | `/calendar/cards/{id}` | Remove a configuração de vencimento do cartão |
@@ -163,6 +164,8 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | POST | `/plans/history/preview` | Simula papéis das categorias, renda confirmada, margem e cenários sem salvar |
 | POST | `/plans/history/review` | Guarda a revisão confirmada por área, sem alterar o plano nem transações |
 | GET | `/transactions?month=AAAA-MM&scope=business` | Lista de lançamentos |
+| GET | `/transactions/review` | Revisão paginada, composição mensal e por origem; filtros de área, mês, categoria, busca e forma |
+| POST | `/transactions/review` | Correções de categoria confirmadas, até 40 por lote, com assinatura dos registros revisados |
 | GET | `/transactions/{id}` | Um lançamento |
 | POST | `/transactions` | Criar lançamento |
 | POST | `/card-purchases` | Registrar compra manual na fatura |
@@ -221,7 +224,23 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 
 As rotas da XP recebem `filename` e `content` do CSV no mesmo JSON. O formato esperado tem as colunas `Data;Hora;Descricao;Valor;Saldo`.
 
+## Revisar a classificação
+
+Abra **Classificar** para consultar despesas ou receitas por área, mês, categoria, origem, conta/cartão e descrição. Cartão usa o mês da fatura; conta usa a data do lançamento. A composição mensal e os principais estabelecimentos mostram o que forma os totais. Valores parecidos não são marcados automaticamente como parcelas: a indicação exibida vem da descrição do lançamento. Compras pendentes continuam provisórias. Em Planos, **Revisar lançamentos** abre a categoria correspondente nesta aba.
+
+Altere a categoria de um lançamento ou selecione até 40 da página e use **Preencher selecionados**. Isso prepara um rascunho; somente **Salvar alterações** grava. Cada lote valida se os registros ainda são os mesmos antes de modificar qualquer categoria, evitando aplicar correções sobre uma substituição da Pluggy. Um conflito rejeita o lote inteiro. Valores, datas, conta, mês da fatura, natureza e exclusão do resumo permanecem intactos.
+
+O aprendizado opcional guarda categorias padrão para novas compras do mesmo estabelecimento, com separação Pessoal/PJ. Uma escolha não reclassifica automaticamente todas as compras antigas. Categorias personalizadas ficam nos registros e escolhas diferentes para o mesmo estabelecimento no mesmo lote não viram uma regra automática. Movimentações financeiras protegidas podem aparecer para consulta, mas devem ser revisadas em Finanças. Não há chamada à IA nesta revisão manual.
+
 ## Crie seu plano
+
+### Receitas e despesas esperadas
+
+Em **Planos → Receitas e despesas previstas**, cadastre o valor mensal, dia esperado, primeiro mês e último mês opcional. Receitas e despesas compartilham a agenda de Finanças e a conferência de caixa do plano, com separação entre Pessoal e PJ. É possível editar/remover a previsão e escolher o mês de referência para os totais. Meses menores ajustam o dia para o último dia do mês; previsões encerradas deixam de gerar eventos. Repetir o cadastro de uma previsão exatamente igual não duplica a entrada.
+
+Previsões não criam lançamentos já recebidos/pagos e não alteram saldos bancários. **Usar receita prevista nos cenários para revisão** copia somente a soma das receitas cadastradas e ativas no mês escolhido para o campo de renda do rascunho. Confira a renda líquida disponível, a área e os compromissos antes de aplicar. Essa renda substitui a hipótese anterior do cenário; não é somada às entradas históricas. Despesas cadastradas também não são somadas automaticamente à média histórica, para evitar repetir gastos já observados.
+
+O histórico identifica também possíveis receitas recorrentes: uma entrada válida por mês, em pelo menos três meses, com valores próximos. Transferências identificadas entre contas, resgates, estornos e cashback ficam fora. **Planejar esta receita** preenche o formulário para revisão; ainda é preciso salvar a previsão explicitamente.
 
 ### Montar a partir dos gastos
 

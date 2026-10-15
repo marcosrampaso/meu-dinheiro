@@ -89,6 +89,9 @@ class ApiTests(unittest.TestCase):
         return status, content
 
     def test_touch_id_gate_covers_reads_and_writes(self):
+        self.assertEqual(self.call_api('/api/v1/transactions/review',authenticated=False)[0],401)
+        self.assertEqual(self.call_api('/api/v1/transactions/review','POST',{},authenticated=False)[0],401)
+        self.assertEqual(self.call_api('/api/v1/calendar/1','PUT',{},authenticated=False)[0],401)
         self.assertEqual(self.call_api('/api/v1/plans/history',authenticated=False)[0],401)
         self.assertEqual(self.call_api('/api/v1/plans/history/preview','POST',{},authenticated=False)[0],401)
         self.assertEqual(self.call_api('/api/v1/plans/history/review','POST',{},authenticated=False)[0],401)
@@ -239,6 +242,20 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.call_api('/api/v1/plans/history/review','POST',draft)[0],400)
         self.assertEqual(self.call_api('/api/v1/plans/history?scope=all')[0],400)
         self.assertEqual(self.call_api('/api/v1/plans/history?months=5')[0],400)
+
+    def test_manual_classification_and_expected_income_routes(self):
+        first=self.store.add({'kind':'expense','description':'Loja exemplo','category':'Outros','amount':'20,00','occurred_on':'2026-09-10'})
+        status,review=self.call_api('/api/v1/transactions/review?category=Outros')
+        self.assertEqual((status,review['total']),(200,1))
+        correction={'scope':'personal','items':[{'id':first['id'],'category':'Compras','signature':review['items'][0]['signature']}]}
+        self.assertEqual(self.call_api('/api/v1/transactions/review','POST',correction,headers={'Origin':'https://other.example'})[0],403)
+        self.assertEqual(self.call_api('/api/v1/transactions/review','POST',correction)[1]['applied'],1)
+        self.assertEqual(self.call_api('/api/v1/transactions/review','POST',correction)[0],400)
+        expected={'scope':'personal','kind':'income','description':'Receita esperada','amount':'1000,00','due_day':15,'starts_month':'2026-10','ends_month':'2026-12'}
+        created=self.call_api('/api/v1/calendar','POST',expected)[1]
+        self.assertEqual(self.call_api('/api/v1/calendar?scope=personal&month=2026-11')[1]['expected_income_cents'],100000)
+        self.assertEqual(self.call_api('/api/v1/calendar/'+str(created['id']),'PUT',{**expected,'amount':'1500,00'})[0],200)
+        self.assertEqual(self.call_api('/api/v1/calendar?scope=personal&month=2027-01')[1]['expected_income_cents'],0)
 
     def test_planning_and_performance_routes(self):
         today = date.today().isoformat()

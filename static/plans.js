@@ -342,6 +342,9 @@ async function refreshPlanHistory() {
       const item = planHistoryElement("div", "", `history-category ${row.role}`);
       const name = planHistoryElement("div", "");
       name.append(planHistoryElement("strong", row.category), planHistoryElement("small", row.reviewed ? "Sua última revisão" : "Papel sugerido · confirme"));
+      const reviewLink = planHistoryElement("a", "Revisar lançamentos");
+      reviewLink.href = `#classificacao?${new URLSearchParams({ scope: data.scope, category: row.category })}`;
+      name.append(reviewLink);
       const amount = planHistoryElement("div", "");
       amount.append(planHistoryElement("strong", `${money.format(row.average_cents / 100)} / mês`),
         planHistoryElement("small", `De ${money.format(row.minimum_cents / 100)} a ${money.format(row.maximum_cents / 100)} · presente em ${row.months_present} meses`));
@@ -372,6 +375,17 @@ async function refreshPlanHistory() {
       item.append(title, planHistoryElement("strong", money.format(row.typical_cents / 100))); return item;
     }));
     if (!data.recurring.length) recurring.append(planHistoryElement("p", "Ainda não há padrões suficientes para sugerir cobranças recorrentes.", "chart-note"));
+    const recurringIncome = document.querySelector("#history-recurring-income");
+    recurringIncome.replaceChildren(...data.recurring_income.map(row => {
+      const item = planHistoryElement("div", "", "history-evidence-row");
+      const title = planHistoryElement("div", row.description);
+      title.append(planHistoryElement("small", `${money.format(row.typical_cents / 100)} · ${row.months_present} meses · ${row.note}`));
+      const button = planHistoryElement("button", "Planejar esta receita", "text-button"); button.type = "button";
+      button.addEventListener("click", () => fillExpectedCommitment({ kind: "income", description: row.description.slice(0, 100),
+        amount_cents: row.typical_cents, due_day: row.due_day_hint, starts_month: todayLocal().slice(0, 7) }));
+      item.append(title, button); return item;
+    }));
+    if (!data.recurring_income.length) recurringIncome.append(planHistoryElement("p", "Sem padrões suficientes de receita. Cadastre manualmente o que você espera receber.", "chart-note"));
     const future = document.querySelector("#history-future");
     future.replaceChildren(...data.future_invoices.map(row => {
       const item = planHistoryElement("div", "", "history-evidence-row");
@@ -447,3 +461,95 @@ document.addEventListener("finance-data-change", () => {
   if (!plansView.hidden) planHistoryStatus("Os lançamentos mudaram. Atualize a análise antes de aplicar novas sugestões.");
 });
 if (!plansView.hidden) void refreshPlanHistory();
+
+const expectedForm = document.querySelector("#expected-form");
+let expectedData = null;
+let expectedEditId = null;
+let expectedRequestId = 0;
+document.querySelector("#expected-month").value = todayLocal().slice(0, 7);
+
+function expectedStatus(message, error = false) {
+  const node = document.querySelector("#expected-status"); node.textContent = message; node.classList.toggle("error", error);
+}
+function fillExpectedCommitment(item = null) {
+  expectedEditId = item?.id || null;
+  expectedForm.reset();
+  expectedForm.elements.starts_month.value = todayLocal().slice(0, 7);
+  expectedForm.elements.due_day.value = Number(todayLocal().slice(8));
+  if (item) {
+    for (const key of ["kind", "description", "due_day", "starts_month", "ends_month"]) expectedForm.elements[key].value = item[key] || "";
+    expectedForm.elements.amount.value = (item.amount_cents / 100).toFixed(2).replace(".", ",");
+    document.querySelector("#expected-editor").open = true;
+    document.querySelector("#expected-editor").scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  document.querySelector("#expected-save").textContent = expectedEditId ? "Salvar previsão" : "Adicionar previsão";
+  document.querySelector("#expected-cancel").hidden = !item;
+}
+async function refreshExpectedCommitments() {
+  if (plansView.hidden) return;
+  const requestId = ++expectedRequestId;
+  const scope = reservePlanScope.value, month = document.querySelector("#expected-month").value;
+  try {
+    const data = await request(`/calendar?scope=${scope}&month=${month}`);
+    if (requestId !== expectedRequestId || scope !== reservePlanScope.value || month !== document.querySelector("#expected-month").value) return;
+    expectedData = data;
+    document.querySelector("#expected-income").textContent = money.format(data.expected_income_cents / 100);
+    document.querySelector("#expected-expense").textContent = money.format(data.expected_expense_cents / 100);
+    document.querySelector("#expected-difference").textContent = money.format((data.expected_income_cents - data.expected_expense_cents) / 100);
+    document.querySelector("#expected-use-income").disabled = data.expected_income_cents === 0;
+    const list = document.querySelector("#expected-list"); list.replaceChildren();
+    for (const item of data.commitments) {
+      const row = planHistoryElement("div", "", "expected-row");
+      const detail = planHistoryElement("div", "");
+      const active = item.starts_month <= month && (!item.ends_month || item.ends_month >= month);
+      detail.append(planHistoryElement("strong", `${item.kind === "income" ? "Receita" : "Despesa"} · ${item.description}`),
+        planHistoryElement("small", `Dia ${item.due_day} · desde ${item.starts_month}${item.ends_month ? ` até ${item.ends_month}` : " · sem último mês definido"}${active ? "" : " · fora do mês de referência"}`));
+      const actions = planHistoryElement("div", "", "row-actions");
+      const edit = planHistoryElement("button", "Editar"); edit.type = "button"; edit.addEventListener("click", () => fillExpectedCommitment(item));
+      const remove = planHistoryElement("button", "Remover"); remove.type = "button";
+      remove.addEventListener("click", async () => {
+        if (!window.confirm(`Remover a previsão de ${item.description}? Os lançamentos financeiros continuam registrados.`)) return;
+        remove.disabled = true;
+        try {
+          await request(`/calendar/${item.id}`, { method: "DELETE" });
+          if (expectedEditId === item.id) fillExpectedCommitment();
+          document.dispatchEvent(new Event("planning-data-change"));
+          await refreshExpectedCommitments(); expectedStatus("Previsão removida.");
+        } catch (error) { expectedStatus(error.message, true); }
+        finally { remove.disabled = false; }
+      });
+      actions.append(edit, remove); row.append(detail, planHistoryElement("strong", money.format(item.amount_cents / 100)), actions); list.append(row);
+    }
+    if (!data.commitments.length) list.append(planHistoryElement("p", "Cadastre a renda que espera receber e os pagamentos mensais conhecidos.", "chart-note"));
+  } catch (error) { if (requestId === expectedRequestId) expectedStatus(error.message, true); }
+}
+expectedForm.addEventListener("submit", async event => {
+  event.preventDefault(); const fields = expectedForm.elements;
+  const scope = reservePlanScope.value, id = expectedEditId;
+  const button = document.querySelector("#expected-save"); button.disabled = true;
+  try {
+    const result = await request(id ? `/calendar/${id}` : "/calendar", { method: id ? "PUT" : "POST", body: JSON.stringify({
+      scope, kind: fields.kind.value, description: fields.description.value, amount: fields.amount.value,
+      due_day: Number(fields.due_day.value), starts_month: fields.starts_month.value, ends_month: fields.ends_month.value || null }) });
+    document.dispatchEvent(new Event("planning-data-change"));
+    if (scope !== reservePlanScope.value) return;
+    fillExpectedCommitment(); await refreshExpectedCommitments();
+    expectedStatus(result.already_registered ? "Esta previsão já estava cadastrada; não foi duplicada." : "Previsão salva na agenda. Ela não cria uma receita ou despesa já realizada.");
+  } catch (error) { expectedStatus(error.message, true); }
+  finally { button.disabled = false; }
+});
+document.querySelector("#expected-cancel").addEventListener("click", () => fillExpectedCommitment());
+document.querySelector("#expected-month").addEventListener("change", refreshExpectedCommitments);
+document.querySelector("#expected-use-income").addEventListener("click", () => {
+  if (!expectedData?.expected_income_cents || expectedData.scope !== reservePlanScope.value) return;
+  if (planHistoryForm.hidden) { expectedStatus("Preencha seu histórico de despesas antes de comparar os cenários. A previsão já está na agenda."); return; }
+  document.querySelector("#history-confirmed-income").value = (expectedData.expected_income_cents / 100).toFixed(2).replace(".", ",");
+  document.querySelector("#history-confirmed-income").dispatchEvent(new Event("input", { bubbles: true }));
+  expectedStatus("Receita prevista copiada para revisão. Confira se é a renda líquida disponível e confirme a base antes de aplicar ao plano.");
+});
+reservePlanScope.addEventListener("change", () => { expectedRequestId += 1; expectedData = null; fillExpectedCommitment(); void refreshExpectedCommitments(); });
+document.addEventListener("plans-view-resume", refreshExpectedCommitments);
+document.addEventListener("finance-data-change", refreshExpectedCommitments);
+document.addEventListener("planning-data-change", refreshReservePlan);
+fillExpectedCommitment();
+if (!plansView.hidden) void refreshExpectedCommitments();

@@ -20,6 +20,7 @@
   <script src="/planning.js" defer></script>
   <script src="/performance.js" defer></script>
   <script src="/plans.js" defer></script>
+  <script src="/review.js" defer></script>
   <script src="/manual-investments.js" defer></script>
   <script src="/pluggy-xp.js" defer></script>
   <script src="/webhooks.js" defer></script>
@@ -59,6 +60,7 @@
       <nav class="workspace-tabs" role="tablist" aria-label="Áreas do Meu Dinheiro">
         <button id="finances-tab" type="button" role="tab" aria-controls="finances-view" aria-selected="true"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>Finanças</button>
         <button id="investments-tab" type="button" role="tab" aria-controls="investments-view" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 17 9 11l4 4 8-10M15 5h6v6M3 21h18"/></svg>Investimentos</button>
+        <button id="review-tab" type="button" role="tab" aria-controls="review-view" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m4 6 2 2 4-4M13 6h7M4 13h5M13 13h7M4 20h5M13 20h7"/></svg>Classificar</button>
         <button id="plans-tab" type="button" role="tab" aria-controls="plans-view" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="m12 12 8-8M16 4h4v4"/></svg>Planos</button>
         <button id="news-tab" type="button" role="tab" aria-controls="news-view" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 7h8M8 11h8M8 15h3M8 18h8"/></svg>Notícias</button>
         <button id="settings-tab" type="button" role="tab" aria-controls="settings-view" aria-selected="false" aria-label="Configurações"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="currentColor"/><circle cx="15" cy="17" r="3" fill="currentColor"/></svg><span class="nav-label-long">Configurações</span><span class="nav-label-short" aria-hidden="true">Config.</span></button>
@@ -324,9 +326,44 @@
         </section>
         <div id="news-report"></div>
       </section>
+      <section id="review-view" class="app-view" role="tabpanel" aria-labelledby="review-tab" hidden>
+        <div class="investment-hero"><div><p class="eyebrow">ENTENDA CADA LANÇAMENTO</p><h1>Classifique com clareza.</h1><p>Confira a composição dos gastos e revise as categorias antes de salvar.</p></div></div>
+        <section class="panel review-panel">
+          <form id="review-filters" class="review-filters">
+            <label>Área<select name="scope"><option value="personal">Pessoal</option><option value="business">PJ</option><option value="all">Tudo</option></select></label>
+            <label>Período<select name="range"><option value="all">Todo o histórico</option><option value="month">Um mês</option></select></label>
+            <label>Mês<input name="month" type="month" disabled></label>
+            <label>Categoria<select name="category"><option value="">Todas</option></select></label>
+            <label>Tipo<select name="kind"><option value="expense">Despesas</option><option value="income">Receitas</option><option value="all">Ambos</option></select></label>
+            <label>Forma<select name="payment_type"><option value="all">Conta e cartão</option><option value="account">Conta / débito</option><option value="credit">Cartão</option></select></label>
+            <label class="review-search">Buscar descrição ou origem<input name="search" maxlength="120" placeholder="Ex.: posto, mercado, estacionamento"></label>
+            <label class="review-checkbox"><input name="include_excluded" type="checkbox"> Mostrar movimentações fora dos gastos</label>
+            <button class="secondary-button" type="submit">Filtrar</button><button id="review-refresh" class="text-button" type="button">Atualizar</button>
+          </form>
+          <p id="review-context" class="chart-note"></p><button id="review-clear-merchant" class="text-button" type="button" hidden>Limpar filtro de estabelecimento</button>
+          <div id="review-status" class="import-status" role="status" aria-live="polite"></div>
+          <div class="history-facts"><div><span>Despesas no filtro</span><strong id="review-expenses">—</strong></div><div><span>Receitas no filtro</span><strong id="review-income">—</strong></div><div><span>Lançamentos encontrados</span><strong id="review-total">—</strong></div></div>
+          <div class="review-evidence"><section><h3>Composição por mês</h3><div id="review-monthly"></div></section><section><h3>Principais estabelecimentos / origens</h3><p class="chart-note">Selecione uma origem para conferir seus lançamentos. Variações no nome podem aparecer separadas.</p><div id="review-merchants"></div></section></div>
+          <p id="review-method" class="chart-note"></p>
+        </section>
+        <section class="panel review-panel"><div class="panel-header"><div><p class="eyebrow">SUA REVISÃO</p><h2>Corrigir categorias</h2><p>Altere os campos abaixo ou preencha os selecionados em lote. Só o botão Salvar altera os registros.</p></div></div>
+          <div class="review-bulk"><button id="review-select-page" class="text-button" type="button">Selecionar até 40 desta página</button><label>Categoria dos selecionados<select id="review-bulk-category"></select></label><button id="review-fill" class="secondary-button" type="button">Preencher selecionados</button></div>
+          <div id="review-list"></div>
+          <div class="review-save"><label class="review-checkbox"><input id="review-remember" type="checkbox" checked> Reutilizar categorias padrão em novas compras deste estabelecimento</label><button id="review-save" class="primary-button" type="button" disabled>Salvar alterações</button></div>
+          <p class="chart-note">Categorias personalizadas ficam nos lançamentos; o aprendizado atual usa as categorias padrão. Correções não mudam valores, datas, parcelas, conta ou exclusão do resumo. Movimentações protegidas são revisadas em Finanças.</p>
+          <div class="review-pagination"><button id="review-previous" class="secondary-button" type="button" disabled>Anterior</button><span id="review-page"></span><button id="review-next" class="secondary-button" type="button" disabled>Próxima</button></div>
+        </section>
+      </section>
       <section id="plans-view" class="app-view" role="tabpanel" aria-labelledby="plans-tab" hidden>
         <div class="investment-hero"><div><p class="eyebrow">UM PASSO DE CADA VEZ</p><h1>Crie seu plano.</h1><p>Transforme sua reserva de emergência em uma meta que você consegue acompanhar.</p></div><label class="month-picker">Plano de<select id="plan-scope"><option value="personal">Pessoal</option><option value="business">PJ</option></select></label></div>
         <div id="plan-status" class="import-status" role="status" aria-live="polite"></div>
+        <section class="panel plan-expected"><div class="panel-header"><div><p class="eyebrow">O QUE VOCÊ ESPERA PARA O MÊS</p><h2>Receitas e despesas previstas</h2><p>Organize os próximos recebimentos e pagamentos por área.</p></div><label class="month-picker">Mês de referência<input id="expected-month" type="month"></label></div>
+          <div class="history-facts"><div><span>Receita esperada cadastrada</span><strong id="expected-income">—</strong></div><div><span>Despesa esperada cadastrada</span><strong id="expected-expense">—</strong></div><div><span>Diferença entre os itens previstos</span><strong id="expected-difference">—</strong></div></div>
+          <button id="expected-use-income" class="secondary-button" type="button" disabled>Usar receita prevista nos cenários para revisão</button>
+          <p class="chart-note">Valores previstos não são lançamentos recebidos ou pagos. Eles entram na agenda e na conferência de caixa. As despesas cadastradas não são somadas novamente à média histórica. Transferências entre suas contas não são uma receita nova; informe a renda líquida disponível para esta área.</p>
+          <details id="expected-editor"><summary>Adicionar receita ou despesa mensal prevista</summary><form id="expected-form" class="planning-form"><label>Tipo<select name="kind"><option value="income">Receita esperada</option><option value="expense">Despesa esperada</option></select></label><label>Descrição<input name="description" maxlength="100" required placeholder="Ex.: salário líquido, prestação de serviço"></label><label>Valor mensal (R$)<input name="amount" inputmode="decimal" required placeholder="0,00"></label><label>Dia previsto<input name="due_day" type="number" min="1" max="31" required></label><label>Primeiro mês<input name="starts_month" type="month" required></label><label>Último mês (opcional)<input name="ends_month" type="month"></label><button id="expected-save" class="primary-button" type="submit">Adicionar previsão</button><button id="expected-cancel" class="text-button" type="button" hidden>Cancelar edição</button></form></details>
+          <div id="expected-status" class="import-status" role="status" aria-live="polite"></div><div id="expected-list"></div>
+        </section>
         <section id="plan-history" class="panel plan-history" aria-labelledby="plan-history-title">
           <div class="panel-header"><div><p class="eyebrow">SEU HISTÓRICO COMO PONTO DE PARTIDA</p><h2 id="plan-history-title">Um plano que começa com seus gastos.</h2><p>Revise os essenciais e compare formas de chegar à sua reserva.</p></div><div class="history-controls"><label>Histórico<select id="plan-history-window"><option value="3">3 meses encerrados</option><option value="6" selected>6 meses encerrados</option></select></label><button id="plan-history-refresh" class="secondary-button" type="button">Atualizar análise</button></div></div>
           <div id="plan-history-status" class="import-status" role="status" aria-live="polite"></div>
@@ -347,7 +384,7 @@
               <div id="history-preview-status" class="import-status" role="status" aria-live="polite"></div>
               <h3>Compare os próximos passos</h3><p id="history-scenarios-note" class="chart-note"></p><div id="history-scenarios" class="history-scenarios"></div>
             </form>
-            <div class="history-evidence"><details><summary>Cobranças que podem se repetir</summary><p class="chart-note">Uma cobrança por mês, em pelo menos três meses, com valores próximos. Podem ser compras ocasionais ou parcelas. Elas já estão incluídas nas categorias acima.</p><div id="history-recurring"></div></details><details><summary>Faturas deste mês e dos próximos já registradas</summary><p class="chart-note">São valores registrados, sujeitos a alterações. A média histórica e a fatura não são somadas como duas despesas no cenário mensal.</p><div id="history-future"></div></details></div>
+            <div class="history-evidence"><details><summary>Cobranças que podem se repetir</summary><p class="chart-note">Uma cobrança por mês, em pelo menos três meses, com valores próximos. Podem ser compras ocasionais ou parcelas. Elas já estão incluídas nas categorias acima.</p><div id="history-recurring"></div></details><details><summary>Receitas que podem se repetir</summary><p class="chart-note">Entradas válidas com padrão mensal. Confira se continuarão antes de cadastrar uma receita esperada. Transferências entre contas, estornos e cashback ficam fora.</p><div id="history-recurring-income"></div></details><details><summary>Faturas deste mês e dos próximos já registradas</summary><p class="chart-note">São valores registrados, sujeitos a alterações. A média histórica e a fatura não são somadas como duas despesas no cenário mensal.</p><div id="history-future"></div></details></div>
           </div>
         </section>
         <div class="reserve-layout">

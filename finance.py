@@ -337,6 +337,9 @@ class FinanceStore:
                 income_cents INTEGER CHECK (income_cents >= 0),
                 buffer_percent INTEGER NOT NULL CHECK (buffer_percent BETWEEN 0 AND 50),
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+            cashflow_columns = {row["name"] for row in connection.execute("PRAGMA table_info(planned_cashflows)")}
+            if "ends_month" not in cashflow_columns:
+                connection.execute("ALTER TABLE planned_cashflows ADD COLUMN ends_month TEXT")
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS reserve_plans (
                     scope TEXT PRIMARY KEY CHECK (scope IN ('personal', 'business')),

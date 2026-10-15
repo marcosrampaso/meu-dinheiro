@@ -35,6 +35,7 @@ from local_auth import LocalAuth, LocalAuthError, SESSION_SECONDS
 from webhook_client import WebhookClient, RelayError
 from reserve_plan import reserve_overview, preview_reserve, save_reserve, delete_reserve
 from plan_insights import history_insights, preview_history, save_history_review
+from transaction_review import review_overview, apply_review
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -44,6 +45,7 @@ STATIC_FILES = {
     "/dashboard.css": (BASE_DIR / "static" / "dashboard.css", "text/css; charset=utf-8"),
     "/privacy.js": (BASE_DIR / "static" / "privacy.js", "text/javascript; charset=utf-8"),
     "/plans.js": (BASE_DIR / "static" / "plans.js", "text/javascript; charset=utf-8"),
+    "/review.js": (BASE_DIR / "static" / "review.js", "text/javascript; charset=utf-8"),
     "/auth.js": (BASE_DIR / "static" / "auth.js", "text/javascript; charset=utf-8"),
     "/app.js": (BASE_DIR / "static" / "app.js", "text/javascript; charset=utf-8"),
     "/import.js": (BASE_DIR / "static" / "import.js", "text/javascript; charset=utf-8"),
@@ -261,7 +263,8 @@ class FinanceHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.OK, budget_overview(self.server.store, self._month(query), self._scope(query)))
             return
         if path == API_PREFIX + "/calendar":
-            self._json(HTTPStatus.OK, calendar_overview(self.server.store, self._scope(query)))
+            self._json(HTTPStatus.OK, calendar_overview(self.server.store, self._scope(query),
+                                                      reference_month=query.get("month", [None])[0]))
             return
         if path == API_PREFIX + "/plans/reserve":
             self._json(HTTPStatus.OK, reserve_overview(self.server.store, self._scope(query, allow_all=False)))
@@ -271,6 +274,17 @@ class FinanceHandler(BaseHTTPRequestHandler):
             if months not in ("3", "6"):
                 raise ValidationError("Escolha os últimos 3 ou 6 meses encerrados.")
             self._json(HTTPStatus.OK, history_insights(self.server.store, self._scope(query, allow_all=False), int(months)))
+            return
+        if path == API_PREFIX + "/transactions/review":
+            included = query.get("include_excluded", ["false"])[0]
+            offset = query.get("offset", ["0"])[0]
+            if included not in ("true", "false") or not offset.isdecimal():
+                raise ValidationError("Filtro de revisão inválido.")
+            self._json(HTTPStatus.OK, review_overview(self.server.store, self._scope(query),
+                month=query.get("month", [None])[0], category=query.get("category", [""])[0],
+                search=query.get("search", [""])[0], kind=query.get("kind", ["expense"])[0],
+                payment_type=query.get("payment_type", ["all"])[0], include_excluded=included == "true",
+                merchant=query.get("merchant", [""])[0], offset=int(offset)))
             return
         if path == API_PREFIX + "/investments/overview":
             raw_months = query.get("months", ["6"])[0]
@@ -511,6 +525,9 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if path == API_PREFIX + "/plans/history/review":
             self._json(HTTPStatus.OK, save_history_review(self.server.store, self._read_json()))
             return
+        if path == API_PREFIX + "/transactions/review":
+            self._json(HTTPStatus.OK, apply_review(self.server.store, self._read_json()))
+            return
         if path == API_PREFIX + "/plans/reserve":
             self._json(HTTPStatus.OK, save_reserve(self.server.store, self._read_json()))
             return
@@ -574,6 +591,12 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if not self._require_same_origin():
             return
         path, _ = self._route()
+        if path.startswith(API_PREFIX + "/calendar/"):
+            raw_id = path.removeprefix(API_PREFIX + "/calendar/")
+            if not raw_id.isdecimal():
+                raise ValidationError("Compromisso inválido.")
+            self._json(HTTPStatus.OK, save_commitment(self.server.store, self._read_json(), commitment_id=int(raw_id)))
+            return
         if path.startswith(API_PREFIX + "/investments/flows/"):
             import_key = path.removeprefix(API_PREFIX + "/investments/flows/")
             classify_flow(self.server.store, import_key, self._read_json().get("classification"))

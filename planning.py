@@ -125,7 +125,8 @@ def data_health(store: FinanceStore, month: str, scope: str, today: date | None 
             "note": "Cobertura de contas vem dos períodos importados; faturas registradas não comprovam fechamento."}
 
 
-def save_commitment(store: FinanceStore, data: dict, today: date | None = None) -> dict:
+def save_commitment(store: FinanceStore, data: dict, today: date | None = None,
+                    commitment_id: int | None = None) -> dict:
     scope = validate_scope(data.get("scope"))
     kind = data.get("kind")
     description = data.get("description")
@@ -137,14 +138,35 @@ def save_commitment(store: FinanceStore, data: dict, today: date | None = None) 
     if isinstance(due_day, bool) or not isinstance(due_day, int) or not 1 <= due_day <= 31:
         raise ValidationError("Escolha um dia de vencimento de 1 a 31.")
     starts_month = validate_month(data.get("starts_month", (today or date.today()).strftime("%Y-%m")))
+    raw_end = data.get("ends_month")
+    ends_month = None if raw_end in (None, "") else validate_month(raw_end)
+    if ends_month is not None and ends_month < starts_month:
+        raise ValidationError("O último mês não pode vir antes do início da recorrência.")
     amount_cents = parse_amount(data.get("amount"))
+    item = {"scope": scope, "kind": kind, "description": description.strip(), "amount_cents": amount_cents,
+            "due_day": due_day, "starts_month": starts_month, "ends_month": ends_month}
     with store._connect() as connection:
-        cursor = connection.execute("""
-            INSERT INTO planned_cashflows (scope, kind, description, amount_cents, due_day, starts_month)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (scope, kind, description.strip(), amount_cents, due_day, starts_month))
-    return {"id": cursor.lastrowid, "scope": scope, "kind": kind, "description": description.strip(),
-            "amount_cents": amount_cents, "due_day": due_day, "starts_month": starts_month}
+        connection.execute("BEGIN IMMEDIATE")
+        if commitment_id is None:
+            duplicate = connection.execute("""SELECT id FROM planned_cashflows WHERE scope=:scope AND kind=:kind
+                AND description=:description AND amount_cents=:amount_cents AND due_day=:due_day
+                AND starts_month=:starts_month AND ends_month IS :ends_month""", item).fetchone()
+            if duplicate:
+                return {"id": duplicate["id"], **item, "already_registered": True}
+            cursor = connection.execute("""INSERT INTO planned_cashflows
+                (scope,kind,description,amount_cents,due_day,starts_month,ends_month)
+                VALUES (:scope,:kind,:description,:amount_cents,:due_day,:starts_month,:ends_month)""", item)
+            identifier = cursor.lastrowid
+        else:
+            if isinstance(commitment_id, bool) or not isinstance(commitment_id, int) or commitment_id <= 0:
+                raise ValidationError("Compromisso inválido.")
+            cursor = connection.execute("""UPDATE planned_cashflows SET scope=:scope,kind=:kind,
+                description=:description,amount_cents=:amount_cents,due_day=:due_day,
+                starts_month=:starts_month,ends_month=:ends_month WHERE id=:id""", {**item, "id": commitment_id})
+            if not cursor.rowcount:
+                raise ValidationError("Compromisso não encontrado.")
+            identifier = commitment_id
+    return {"id": identifier, **item}
 
 
 def delete_commitment(store: FinanceStore, commitment_id: int) -> None:
@@ -194,9 +216,11 @@ def _due_on(year: int, month: int, due_day: int) -> date:
     return date(year, month, min(due_day, calendar.monthrange(year, month)[1]))
 
 
-def calendar_overview(store: FinanceStore, scope: str, today: date | None = None, days: int = 42) -> dict:
+def calendar_overview(store: FinanceStore, scope: str, today: date | None = None, days: int = 42,
+                      reference_month: str | None = None) -> dict:
     scope = validate_scope(scope, allow_all=True)
     today = today or date.today()
+    reference_month = validate_month(reference_month or today.strftime("%Y-%m"))
     horizon = today + timedelta(days=days)
     with store._connect() as connection:
         commitments = [dict(row) for row in connection.execute("""
@@ -227,7 +251,8 @@ def calendar_overview(store: FinanceStore, scope: str, today: date | None = None
     while month <= horizon:
         for item in commitments:
             due = _due_on(month.year, month.month, item["due_day"])
-            if today < due <= horizon and due.strftime("%Y-%m") >= item["starts_month"]:
+            if today < due <= horizon and due.strftime("%Y-%m") >= item["starts_month"] and (
+                    item["ends_month"] is None or due.strftime("%Y-%m") <= item["ends_month"]):
                 events.append({"id": item["id"], "source_type": "recurring",
                                "due_on": due.isoformat(), "scope": item["scope"],
                                "kind": item["kind"], "description": item["description"],
@@ -258,7 +283,12 @@ def calendar_overview(store: FinanceStore, scope: str, today: date | None = None
         event["projected_balance_cents"] = running
     oldest = min((row["as_of"] for row in balances), default=None)
     known_cards = sorted({(row["scope"], row["source"]) for row in invoices})
+    active = [row for row in commitments if row["starts_month"] <= reference_month and
+              (row["ends_month"] is None or row["ends_month"] >= reference_month)]
     return {"scope": scope, "through": horizon.isoformat(), "commitments": commitments,
+            "reference_month": reference_month,
+            "expected_income_cents": sum(row["amount_cents"] for row in active if row["kind"] == "income"),
+            "expected_expense_cents": sum(row["amount_cents"] for row in active if row["kind"] == "expense"),
             "card_rules": card_rules,
             "known_cards": [{"scope": card_scope, "source": source} for card_scope, source in known_cards],
             "events": events, "opening_balance_cents": opening,

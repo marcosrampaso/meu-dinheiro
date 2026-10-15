@@ -57,6 +57,35 @@ def _income(row):
             not re.match(r"^(cashback|estorno|reembolso|resgate)\b", description))
 
 
+def _recurring_evidence(rows, window):
+    merchants = defaultdict(list)
+    for row in rows:
+        description = re.sub(r"\(?\b(?:parcela\s*)?\d{1,2}\s*(?:/|de)\s*\d{1,2}\b\)?", "", row["description"], flags=re.I)
+        key = merchant_key(description)
+        if key:
+            merchants[key].append(row)
+    recurring = []
+    for items in merchants.values():
+        counts = Counter(_basis_month(row) for row in items)
+        if len(counts) < 3 or max(counts.values()) != 1 or window[-1] not in counts:
+            continue
+        amounts = [row["amount_cents"] for row in items]
+        typical = round(median(amounts))
+        if max(amounts) - min(amounts) > typical * .2:
+            continue
+        latest = max(items, key=lambda row: (_basis_month(row), row["occurred_on"], row["id"]))
+        installment = latest["kind"] == "expense" and any(re.search(
+            r"\b\d{1,2}\s*/\s*\d{1,2}\b|parcela", row["description"], re.I) for row in items)
+        recurring.append({"description": latest["description"], "category": latest["category"],
+                          "kind": latest["kind"], "due_day_hint": round(median(int(row["occurred_on"][-2:]) for row in items)),
+                          "typical_cents": typical, "months_present": len(counts),
+                          "type": "installment" if installment else "recurring",
+                          "note": "Possível parcelamento; confirme o prazo restante." if installment else
+                          "Uma entrada por mês, com valores próximos. Confirme se continuará." if latest["kind"] == "income" else
+                          "Uma cobrança por mês, com valores próximos. Confirme se continuará."})
+    return sorted(recurring, key=lambda row: -row["typical_cents"])
+
+
 def history_insights(store, scope="personal", months=6, today=None):
     today = today or date.today()
     scope, months = validate_scope(scope), _window(months)
@@ -110,29 +139,6 @@ def history_insights(store, scope="personal", months=6, today=None):
                            "months_present": sum(value > 0 for value in amounts), "count": len(grouped),
                            "role": preferences.get(category, suggestion), "reviewed": category in preferences})
     categories.sort(key=lambda item: (-item["average_cents"], item["category"]))
-    recurring = []
-    merchants = defaultdict(list)
-    for row in spending:
-        description = re.sub(r"\(?\b(?:parcela\s*)?\d{1,2}\s*(?:/|de)\s*\d{1,2}\b\)?", "", row["description"], flags=re.I)
-        key = merchant_key(description)
-        if key:
-            merchants[key].append(row)
-    for items in merchants.values():
-        counts = Counter(_basis_month(row) for row in items)
-        # Several grocery/restaurant purchases per month do not establish a fixed bill.
-        if len(counts) < 3 or max(counts.values()) != 1 or window[-1] not in counts:
-            continue
-        amounts = [row["amount_cents"] for row in items]
-        typical = round(median(amounts))
-        if max(amounts) - min(amounts) > typical * .2:
-            continue
-        latest = max(items, key=lambda row: (_basis_month(row), row["occurred_on"], row["id"]))
-        installment = any(re.search(r"\b\d{1,2}\s*/\s*\d{1,2}\b|parcela", row["description"], re.I) for row in items)
-        recurring.append({"description": latest["description"], "category": latest["category"],
-                          "typical_cents": typical, "months_present": len(counts),
-                          "type": "installment" if installment else "recurring",
-                          "note": "Possível parcelamento; confirme o prazo restante." if installment else
-                          "Uma cobrança por mês, com valores próximos. Confirme se continuará."})
     future = [row for row in rows if row["kind"] == "expense" and not _ignored(row) and
               row["invoice_month"] is not None and row["invoice_month"] >= today.strftime("%Y-%m")]
     future_by_month = [{"month": month, "amount_cents": sum(row["amount_cents"] for row in future if row["invoice_month"] == month),
@@ -168,7 +174,8 @@ def history_insights(store, scope="personal", months=6, today=None):
         sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     return {"scope": scope, "window_months": months, "window": window, "base_months": base,
             "signature": fingerprint, "monthly": monthly, "categories": categories,
-            "recurring": sorted(recurring, key=lambda row: -row["typical_cents"]),
+            "recurring": _recurring_evidence(spending, window),
+            "recurring_income": _recurring_evidence(income, window),
             "future_invoices": future_by_month, "warnings": warnings,
             "quality": "documented" if len(documented) >= 3 else "provisional" if base else "empty",
             "average_spending_cents": round(total / len(base)) if base else None,

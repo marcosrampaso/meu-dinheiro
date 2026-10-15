@@ -132,13 +132,14 @@ function renderCalendar(data) {
     const row = document.createElement("div");
     row.className = "calendar-row";
     const title = document.createElement("span");
-    title.textContent = `${item.description} · dia ${item.due_day} · ${money.format(item.amount_cents / 100)}${data.scope === "all" ? item.scope === "business" ? " · PJ" : " · Pessoal" : ""}`;
+    title.textContent = `${item.kind === "income" ? "Receita esperada" : "Despesa esperada"} · ${item.description} · dia ${item.due_day} · ${money.format(item.amount_cents / 100)}${item.ends_month ? ` · até ${item.ends_month}` : ""}${data.scope === "all" ? item.scope === "business" ? " · PJ" : " · Pessoal" : ""}`;
     const remove = document.createElement("button");
     remove.type = "button";
     remove.textContent = "Remover";
     remove.addEventListener("click", async () => {
       try {
         await request(`/calendar/${item.id}`, { method: "DELETE" });
+        document.dispatchEvent(new Event("planning-data-change"));
         await refreshPlanning();
       } catch (error) { planningStatus("calendar-status", error.message, true); }
     });
@@ -226,6 +227,7 @@ calendarForm.addEventListener("submit", async event => {
     calendarForm.elements.description.value = "";
     calendarForm.elements.amount.value = "";
     planningStatus("calendar-status", "Recorrência adicionada.");
+    document.dispatchEvent(new Event("planning-data-change"));
     await refreshPlanning();
   } catch (error) { planningStatus("calendar-status", error.message, true); }
   finally { button.disabled = false; }

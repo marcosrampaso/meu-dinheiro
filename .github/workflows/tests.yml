@@ -40,3 +40,5 @@ jobs:
         run: node tests/test_plan_history_browser.js
       - name: Login local por senha
         run: node tests/test_password_browser.js
+      - name: Classificar lançamentos e cadastrar receitas esperadas
+        run: node tests/test_review_expected_browser.js
