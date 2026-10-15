@@ -475,6 +475,21 @@ class ApiTests(unittest.TestCase):
         self.assertEqual((status, history["purchase_total_cents"]), (200, 3000))
         self.assertEqual(self.call_api("/api/v1/purchase-categories?month=2026-13")[0], 400)
 
+    def test_local_knn_suggestions_need_no_chatgpt_and_never_modify_until_review(self):
+        for amount,category in [('28','Tabaco'),('35','Tabaco'),('150','Transporte'),('180','Transporte')]:
+            self.store.add({'kind':'expense','description':'Autoposto exemplo','amount':amount,
+                'category':category,'occurred_on':'2026-10-10'})
+        row=self.store.add({'kind':'expense','description':'Autoposto exemplo','amount':'32',
+            'category':'Importado','occurred_on':'2026-10-10'})
+        with patch.object(self.server.auth,'inference_credentials') as credentials, patch('app.suggest_categories') as model:
+            status,data=self.call_api('/api/v1/categorization/suggest','POST',{'engine':'local'})
+        self.assertEqual(status,200)
+        credentials.assert_not_called(); model.assert_not_called()
+        self.assertEqual(data['items'][0]['suggested_category'],'Tabaco')
+        self.assertEqual(data['items'][0]['suggestion_source'],'knn')
+        self.assertEqual(self.store.get(row['id'])['category'],'Importado')
+        self.assertEqual(self.call_api('/api/v1/categorization/suggest','POST',{'engine':'unknown'})[0],400)
+
     def test_categorization_suggest_and_review_apply(self):
         self.call_api("/api/v1/transactions", "POST", {
             "kind": "expense", "description": "Mercado", "amount": "25,00",

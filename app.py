@@ -344,7 +344,7 @@ class FinanceHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.OK, {**self.server.auth.status(),
                                        "uncategorized_count": count,
                                        "pending_by_scope": self.server.store.uncategorized_breakdown(month),
-                                       "categories": PURCHASE_CATEGORIES})
+                                       "categories": self.server.store.purchase_category_choices(self._scope(query))})
             return
         if path.startswith(API_PREFIX + "/invoices/"):
             self._json(HTTPStatus.OK, {"items": self.server.store.invoice_items(
@@ -485,7 +485,8 @@ class FinanceHandler(BaseHTTPRequestHandler):
             self.server.cdi.wake()
             return
         if path == API_PREFIX + "/accounts/pluggy/inter/preview":
-            self._json(HTTPStatus.OK, self.server.pluggy_inter.preview())
+            data = self._read_json()
+            self._json(HTTPStatus.OK, self.server.pluggy_inter.preview(full_history=data.get('full_history', False)))
             return
         if path == API_PREFIX + "/accounts/pluggy/inter/import":
             self._json(HTTPStatus.CREATED, self.server.pluggy_inter.import_preview(
@@ -572,14 +573,19 @@ class FinanceHandler(BaseHTTPRequestHandler):
             rows, count = self.server.store.uncategorized_purchases(
                 data.get("scope", "personal"), data.get("month"),
                 payment_type=data.get("payment_type", "all"))
-            learned = self.server.store.remembered_categories(rows)
+            engine = data.get('engine', 'hybrid')
+            if engine not in ('local', 'hybrid'):
+                raise ValidationError('Escolha aprendizado local ou local com ChatGPT.')
+            learned = self.server.store.local_category_suggestions(rows)
             unknown = [row for row in rows if row["id"] not in learned]
-            token, model = self.server.auth.inference_credentials() if unknown else ("", None)
-            suggestions = suggest_categories(unknown, token, model) if unknown else []
+            token, model = self.server.auth.inference_credentials() if unknown and engine == 'hybrid' else ("", None)
+            suggestions = suggest_categories(unknown, token, model) if unknown and engine == 'hybrid' else []
             by_id = {item["id"]: item["category"] for item in suggestions}
             self._json(HTTPStatus.OK, {"items": [
-                {**row, "suggested_category": learned.get(row["id"], by_id.get(row["id"])),
-                 "suggestion_source": "learned" if row["id"] in learned else "model"}
+                {**row, "suggested_category": learned[row['id']]['category'] if row['id'] in learned else by_id.get(row['id']),
+                 "suggestion_source": learned[row['id']]['source'] if row['id'] in learned else 'model' if row['id'] in by_id else 'unresolved',
+                 "suggestion_reason": learned[row['id']]['reason'] if row['id'] in learned else
+                    'Confira a sugestão do ChatGPT.' if row['id'] in by_id else 'Sem exemplos próximos suficientes. Escolha uma categoria para ensinar.'}
                 for row in rows],
                                        "remaining_count": count - len(rows), "model": model})
             return

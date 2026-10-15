@@ -54,7 +54,7 @@ class ReviewTests(unittest.TestCase):
         first=self.add(category='Outros')
         row=review_overview(self.store)['items'][0]
         result=apply_review(self.store,{'items':[self.correction(row,'Compras')],'remember':True})
-        self.assertEqual(result,{'applied':1,'learned':1})
+        self.assertEqual(result,{'applied':1,'learned':1,'learned_examples':1})
         after=self.store.get(first['id'])
         self.assertEqual({**first,'category':'Compras'},after)
         later=self.add(description='POSTO EXEMPLO',category='Importado')
@@ -77,7 +77,7 @@ class ReviewTests(unittest.TestCase):
         self.add(category='Outros'); self.add(category='Outros')
         rows=review_overview(self.store)['items']
         result=apply_review(self.store,{'items':[self.correction(rows[0],'Compras'),self.correction(rows[1],'Mercado')]})
-        self.assertEqual(result,{'applied':2,'learned':0})
+        self.assertEqual(result,{'applied':2,'learned':0,'learned_examples':2})
 
     def test_expected_receipts_are_explicit_scoped_editable_finite_and_not_real_income(self):
         item={'scope':'personal','kind':'income','description':'Serviço esperado','amount':'1000,00',

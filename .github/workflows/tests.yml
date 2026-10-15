@@ -42,5 +42,7 @@ jobs:
         run: node tests/test_password_browser.js
       - name: Inatividade e sessão após recarregar
         run: node tests/test_idle_session_browser.js
+      - name: Aprendizado local e importação histórica
+        run: node tests/test_learning_browser.js
       - name: Classificar lançamentos e cadastrar receitas esperadas
         run: node tests/test_review_expected_browser.js

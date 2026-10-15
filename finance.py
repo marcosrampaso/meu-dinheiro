@@ -25,7 +25,7 @@ class NotFoundError(LookupError):
 PURCHASE_CATEGORIES = (
     "Alimentação", "Mercado", "Moradia", "Transporte", "Saúde", "Educação",
     "Lazer", "Compras", "Assinaturas", "Viagens", "Cuidados pessoais",
-    "Impostos e taxas", "Serviços", "Outros",
+    "Impostos e taxas", "Serviços", "Tabaco", "Outros",
 )
 CARD_BANKS = {"inter": "Inter", "bb": "Banco do Brasil"}
 GENERIC_MERCHANT_KEYS = {"pix", "compra", "debito", "credito", "pagamento", "transferencia",
@@ -198,6 +198,8 @@ class FinanceStore:
             connection.execute("""CREATE TABLE IF NOT EXISTS pluggy_inter_policy (
                 singleton INTEGER PRIMARY KEY CHECK(singleton=1),
                 starts_on TEXT NOT NULL, card_starts_on TEXT NOT NULL)""")
+            if 'account_history_start' not in {r[1] for r in connection.execute('PRAGMA table_info(pluggy_inter_policy)')}:
+                connection.execute('ALTER TABLE pluggy_inter_policy ADD COLUMN account_history_start TEXT')
             invoice_coverage_exists = connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'invoice_coverage'"
             ).fetchone() is not None
@@ -404,23 +406,27 @@ class FinanceStore:
                     "WHERE kind = 'expense' AND excluded = 0 ORDER BY id"
                 ):
                     self._remember_category(connection, row["description"], row["scope"], row["category"])
+            from category_learning import learnable
             # Add aliases from approved historical descriptions without replacing a later correction.
             aliases = {}
             for row in connection.execute("SELECT description,scope,category FROM transactions WHERE kind='expense' AND excluded=0"):
                 key = merchant_key(row["description"])
-                if key and row["category"] in PURCHASE_CATEGORIES:
+                if key and learnable(row["category"]):
                     aliases.setdefault((row["scope"], key), set()).add(row["category"])
             for (scope, key), categories in aliases.items():
                 if len(categories) == 1:
                     connection.execute("INSERT OR IGNORE INTO category_memory(scope,merchant_key,category) VALUES (?,?,?)",
                                        (scope, key, categories.pop()))
+            from category_learning import initialize
+            initialize(connection)
         os.chmod(self.path, 0o600)
 
     @staticmethod
     def _remember_category(connection: sqlite3.Connection, description: str,
                            scope: str, category: str) -> None:
+        from category_learning import learnable
         key = merchant_key(description)
-        if key and category in PURCHASE_CATEGORIES:
+        if key and learnable(category):
             connection.execute("""
                 INSERT INTO category_memory (scope, merchant_key, category) VALUES (?, ?, ?)
                 ON CONFLICT (scope, merchant_key) DO UPDATE SET
@@ -429,31 +435,31 @@ class FinanceStore:
 
     def remembered_categories(self, rows: list[dict]) -> dict[int, str]:
         """Return locally approved categories for the exact normalized merchant."""
-        keys = {merchant_key(row["description"]) for row in rows}
-        keys.discard(None)
-        if not keys:
-            return {}
-        placeholders = ", ".join("?" for _ in keys)
+        from category_learning import exact_categories
         with self._connect() as connection:
-            remembered = {
-                (row["scope"], row["merchant_key"]): row["category"]
-                for row in connection.execute(
-                    f"SELECT scope, merchant_key, category FROM category_memory "
-                    f"WHERE merchant_key IN ({placeholders})", tuple(keys))
-            }
-        matches = {}
-        for row in rows:
-            key = merchant_key(row["description"])
-            category = remembered.get((row["scope"], key))
-            if category:
-                matches[row["id"]] = category
-        return matches
+            return exact_categories(connection, rows)
+
+    @staticmethod
+    def _record_category_example(connection, identifier, learn=True):
+        from category_learning import record_example
+        record_example(connection, identifier, learn)
+
+    def purchase_category_choices(self, scope="personal"):
+        from category_learning import choices
+        scope = validate_scope(scope, allow_all=True)
+        with self._connect() as connection:
+            return choices(connection, scope)
+
+    def local_category_suggestions(self, rows):
+        from category_learning import suggest_local
+        with self._connect() as connection:
+            return suggest_local(connection, rows)
 
     def apply_remembered_categories(self) -> int:
         """Apply only locally approved merchant rules to unclassified purchases."""
         with self._connect() as connection:
             rows = [dict(row) for row in connection.execute(
-                "SELECT id,description,scope FROM transactions WHERE kind='expense' AND excluded=0 AND category='Importado'")]
+                "SELECT * FROM transactions WHERE kind='expense' AND excluded=0 AND category='Importado'")]
         learned = self.remembered_categories(rows)
         applied = 0
         with self._connect() as connection:
@@ -474,8 +480,11 @@ class FinanceStore:
             if previous_columns | {"scope"} <= columns:
                 if source.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
                                   "AND name = 'category_memory'").fetchone():
-                    return
-                suffix = ".before-category-memory.bak"
+                    if source.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='category_examples'").fetchone():
+                        return
+                    suffix = '.before-category-examples.bak'
+                else:
+                    suffix = ".before-category-memory.bak"
             else:
                 suffix = ".before-scope.bak" if previous_columns <= columns else ".before-import.bak"
             backup_path = self.path.with_name(self.path.name + suffix)
@@ -506,6 +515,7 @@ class FinanceStore:
             transaction_id = cursor.lastrowid
             if item["kind"] == "expense" and not item["excluded"]:
                 self._remember_category(connection, item["description"], item["scope"], item["category"])
+            self._record_category_example(connection, transaction_id)
         return self.get(transaction_id)
 
     def add_card_purchase(self, data: dict) -> dict:
@@ -533,6 +543,7 @@ class FinanceStore:
             )
             transaction_id = cursor.lastrowid
             self._remember_category(connection, item["description"], item["scope"], item["category"])
+            self._record_category_example(connection, transaction_id)
         return self.get(transaction_id)
 
     def get(self, transaction_id: int) -> dict:
@@ -555,10 +566,12 @@ class FinanceStore:
                 raise NotFoundError("Lançamento não encontrado.")
             if item["kind"] == "expense" and not item["excluded"]:
                 self._remember_category(connection, item["description"], item["scope"], item["category"])
+            self._record_category_example(connection, transaction_id)
         return self.get(transaction_id)
 
     def delete(self, transaction_id: int) -> None:
         with self._connect() as connection:
+            self._record_category_example(connection, transaction_id, learn=False)
             cursor = connection.execute("DELETE FROM transactions WHERE id = ?", (transaction_id,))
             if cursor.rowcount == 0:
                 raise NotFoundError("Lançamento não encontrado.")
@@ -1167,13 +1180,14 @@ class FinanceStore:
         if not isinstance(suggestions, list) or not 1 <= len(suggestions) <= 40:
             raise ValidationError("Envie de 1 a 40 categorias.")
         ids = set()
+        choices = self.purchase_category_choices(scope)
         for item in suggestions:
             if not isinstance(item, dict) or set(item) != {"id", "category"}:
                 raise ValidationError("Sugestão de categoria inválida.")
             transaction_id, category = item["id"], item["category"]
             if isinstance(transaction_id, bool) or not isinstance(transaction_id, int) or transaction_id <= 0 or transaction_id in ids:
                 raise ValidationError("ID de compra inválido ou repetido.")
-            if category not in PURCHASE_CATEGORIES:
+            if category not in choices:
                 raise ValidationError("Categoria de compra inválida.")
             ids.add(transaction_id)
         applied = 0
@@ -1195,6 +1209,7 @@ class FinanceStore:
                 if cursor.rowcount:
                     self._remember_category(connection, original["description"], original["scope"],
                                             item["category"])
+                    self._record_category_example(connection, item["id"])
         return {"applied": applied, "skipped": len(suggestions) - applied}
 
     def invoice_items(self, month: str, source: str, scope: str = "personal") -> list[dict]:

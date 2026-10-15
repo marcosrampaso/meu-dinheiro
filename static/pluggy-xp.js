@@ -3,6 +3,7 @@ const pluggyPreviewButton = document.querySelector("#pluggy-xp-preview-button");
 const pluggyXpImportButton = document.querySelector("#pluggy-xp-import-button");
 const pluggyRemoveButton = document.querySelector("#pluggy-xp-remove");
 const interPreviewButton = document.querySelector("#pluggy-inter-preview-button");
+const interFullHistory = document.querySelector("#pluggy-inter-full-history");
 const interImportButton = document.querySelector("#pluggy-inter-import-button");
 let interPreviewToken = null;
 let xpPreviewToken = null;
@@ -183,11 +184,11 @@ interPreviewButton.addEventListener("click", async () => {
   clearInterPreview();
   interStatus("Consultando conta e cartão do Inter na Pluggy...");
   try {
-    const data = await request("/accounts/pluggy/inter/preview", { method: "POST", body: "{}" });
+    const data = await request("/accounts/pluggy/inter/preview", { method: "POST", body: JSON.stringify({ full_history: interFullHistory.checked }) });
     renderInterPreview(data);
     interPreviewToken = data.preview_token;
     interImportButton.disabled = !(data.new_count || data.bank_balance);
-    interStatus("Confira as datas e as compras novas. O histórico de faturas e extratos anterior ao início da conexão será preservado.");
+    interStatus(data.full_history ? "Confira o período completo recebido da conta. A importação substitui os registros nesse intervalo e preserva categorias reconhecidas. Faturas antigas permanecem como estão." : "Confira as datas e as compras novas. O histórico fora dos períodos mostrados será preservado.");
   } catch (error) { interStatus(error.message, true); }
   finally { await refreshPluggyStatus(); }
 });
@@ -211,3 +212,5 @@ interImportButton.addEventListener("click", async () => {
 
 document.addEventListener("settings-view-resume", refreshPluggyStatus);
 refreshPluggyStatus();
+
+interFullHistory.addEventListener("change", clearInterPreview);

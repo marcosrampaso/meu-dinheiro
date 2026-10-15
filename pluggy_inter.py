@@ -28,6 +28,12 @@ def live_start(store: FinanceStore) -> str:
     return policy[0] if policy else date.today().replace(day=1).isoformat()
 
 
+def account_live_start(store: FinanceStore, starts_on: str) -> str:
+    with store._connect() as connection:
+        row = connection.execute('SELECT account_history_start FROM pluggy_inter_policy WHERE singleton=1').fetchone()
+    return min(starts_on, row[0]) if row and row[0] else starts_on
+
+
 def card_live_start(store: FinanceStore, starts_on: str) -> str:
     with store._connect() as connection:
         policy = connection.execute("SELECT card_starts_on FROM pluggy_inter_policy WHERE singleton=1").fetchone()
@@ -142,7 +148,9 @@ class PluggyInter:
         with self._lock:
             self._pending = None
 
-    def preview(self, http_json=_http_json) -> dict:
+    def preview(self, http_json=_http_json, *, full_history=False) -> dict:
+        if not isinstance(full_history, bool):
+            raise PluggyError('Escolha se deseja consultar o histórico completo da conta.')
         from pluggy_sync import revision
         current_revision = revision(self.store,'Inter')
         config = self.pluggy.load_config()
@@ -168,6 +176,7 @@ class PluggyInter:
         prepared = []
         starts_on = live_start(self.store)
         card_starts_on = card_live_start(self.store, starts_on)
+        account_starts_on = account_live_start(self.store, starts_on)
         periods = []
         skipped = Counter()
         account_summaries = []
@@ -175,7 +184,7 @@ class PluggyInter:
         seen_keys = set()
         for account in relevant:
             is_card = account["type"] == "CREDIT"
-            source_start = card_starts_on if is_card else starts_on
+            source_start = card_starts_on if is_card else account_starts_on
             source = CARD_SOURCE if is_card else ACCOUNT_SOURCE
             account_id = account["id"]
             bills = _pages("/bills?" + urlencode({"accountId": account_id}), api_key, http_json) if is_card else []
@@ -184,11 +193,17 @@ class PluggyInter:
                 if UUID.fullmatch(str(bill.get("id", ""))) and bill.get("dueDate"):
                     bill_months[bill["id"]] = _iso_date(bill["dueDate"], "uma fatura")[:7]
             transactions = _transactions(account_id, api_key, http_json)
-            dates = [_iso_date(row.get("date"), "uma transação") for row in transactions]
+            dates = [_iso_date(row.get("date"), "uma transação") for row in transactions
+                     if is_card or row.get('status') == 'POSTED']
+            dates = [value for value in dates if value <= date.today().isoformat()]
+            if full_history and not is_card and dates:
+                source_start = min(dates)
+                account_starts_on = min(account_starts_on, source_start)
             updated_on = _iso_date(account.get("updatedAt") or datetime.now(timezone.utc).isoformat(), "a conta")
             if dates:
                 from pluggy_sync import covered_start
-                period_start = max(source_start, covered_start(self.store, source, "personal", min(dates)))
+                period_start = min(dates) if full_history and not is_card else max(
+                    source_start, covered_start(self.store, source, "personal", min(dates)))
                 period_end = min(date.today().isoformat(), max(updated_on, max(dates)))
                 if period_start <= period_end:
                     periods.append({"source": source, "scope": "personal", "starts_on": period_start,
@@ -263,6 +278,8 @@ class PluggyInter:
                              "items": prepared, "balance": bank_balance, "periods": periods, "revision":current_revision}
             self._pending["starts_on"] = starts_on
             self._pending["card_starts_on"] = card_starts_on
+            self._pending['account_history_start'] = account_starts_on
+            self._pending['full_history'] = full_history
         from pluggy_sync import replacement_counts
         replacements = replacement_counts(self.store, periods)
         return {"preview_token": token, "accounts": account_summaries,
@@ -270,13 +287,15 @@ class PluggyInter:
                 "periods": periods, "replaced_count": replacements,
                 "live_starts_on": starts_on,
                 "card_live_starts_on": card_starts_on,
+                "full_history": full_history,
+                "account_history_start": account_starts_on,
                 "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 "bank_balance": bank_balance,
                 "new_items": [{key: row[key] for key in ("kind", "description", "amount_cents",
                                                       "occurred_on", "source", "invoice_month",
                                                       "category", "excluded", "pending")}
                               for row in prepared],
-                "note": f"Conta: operações desde {starts_on}. Cartão: compras desde {card_starts_on}, após o histórico das faturas importadas. Pagamentos de cartão não são compras. Categorias reconhecidas são preservadas; compras pendentes são provisórias."}
+                "note": f"Conta: operações disponíveis desde {account_starts_on}. Cartão: compras desde {card_starts_on}, após o histórico das faturas importadas. Pagamentos de cartão não são compras. Categorias reconhecidas são preservadas; compras pendentes são provisórias."}
 
     def import_preview(self, token: object) -> dict:
         with self._lock:

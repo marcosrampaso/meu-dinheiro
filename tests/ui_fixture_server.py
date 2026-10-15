@@ -110,6 +110,10 @@ def main():
                    "category":"Mercado","scope":"personal","occurred_on":date.today().isoformat()})
         if "--history" in sys.argv:
             seed_history(store)
+        if "--learning" in sys.argv:
+            for amount,category in [('28','Tabaco'),('35','Tabaco'),('150','Transporte'),('180','Transporte'),('32','Importado'),('160','Importado'),('80','Importado')]:
+                store.add({'kind':'expense','description':'Autoposto exemplo','amount':amount,
+                    'category':category,'occurred_on':date.today().isoformat(),'scope':'personal'})
         with FixtureServer(("127.0.0.1", 0), IdleFixtureHandler if "--idle-auth" in sys.argv else FinanceHandler) as server:
             server.store = store
             server.local_auth = (IdleFixtureAuth(base / "unused.swift", base) if "--idle-auth" in sys.argv else

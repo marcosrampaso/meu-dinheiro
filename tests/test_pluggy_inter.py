@@ -166,6 +166,45 @@ class PluggyInterTests(unittest.TestCase):
         mercado = next(r for r in self.store.list_month("2026-10") if r["description"]=="Mercado")
         self.assertEqual(mercado["amount_cents"],3100)
 
+    def test_full_account_history_replaces_overlap_preserves_categories_and_invoice_policy(self):
+        manual = self.store.add({'kind':'expense','description':'Compra no débito','category':'Tabaco',
+            'amount':'20','occurred_on':'2026-09-20','scope':'personal'})
+        with self.store._connect() as c:
+            c.execute("UPDATE transactions SET source='Inter · conta corrente' WHERE id=?",(manual['id'],))
+        old_card = {'kind':'expense','description':'Fatura antiga','category':'Mercado','amount_cents':5000,
+            'occurred_on':'2026-09-10','source':'Inter · cartão principal','invoice_month':'2026-09',
+            'scope':'personal','excluded':False,'import_key':hashlib.sha256(b'closed-invoice').hexdigest()}
+        self.store.add_imported([old_card])
+        self.store.save_invoice_coverage(old_card['source'],'personal','2026-09')
+        preview = self.inter.preview(self.fake_http, full_history=True)
+        self.assertTrue(preview['full_history'])
+        self.assertEqual(preview['account_history_start'],'2026-09-20')
+        self.assertTrue(any(p['starts_on']=='2026-09-20' for p in preview['periods']))
+        result = self.inter.import_preview(preview['preview_token'])
+        self.assertEqual(result['categories_preserved'],1)
+        with self.store._connect() as c:
+            rows = [dict(r) for r in c.execute("SELECT * FROM transactions WHERE source='Inter · conta corrente' AND occurred_on='2026-09-20'")]
+            self.assertEqual(len(rows),1)
+            self.assertEqual(rows[0]['category'],'Tabaco')
+            self.assertEqual(c.execute('SELECT COUNT(*) FROM category_examples').fetchone()[0],1)
+            self.assertEqual(c.execute('SELECT starts_on,card_starts_on,account_history_start FROM pluggy_inter_policy').fetchone()[:],
+                ('2026-10-01','2026-10-01','2026-09-20'))
+        repeat = self.inter.preview(self.fake_http)
+        self.assertEqual(repeat['skipped']['historical'],1) # Only the old card purchase.
+        self.inter.import_preview(repeat['preview_token'])
+        with self.store._connect() as c:
+            self.assertEqual(c.execute('SELECT COUNT(*) FROM category_examples').fetchone()[0],1)
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM transactions WHERE invoice_month='2026-09'").fetchone()[0],1)
+            self.assertEqual(c.execute("SELECT category FROM transactions WHERE invoice_month='2026-09'").fetchone()[0],'Mercado')
+        self.assertEqual(next(r for r in self.store.list_month('2026-09') if r['invoice_month'] is None)['category'],'Tabaco')
+
+    def test_full_history_flag_validates_before_network_and_preview_does_not_change_policy(self):
+        with self.assertRaises(PluggyError): self.inter.preview(self.fake_http, full_history='true')
+        preview = self.inter.preview(self.fake_http, full_history=True)
+        with self.store._connect() as c:
+            self.assertEqual(c.execute('SELECT COUNT(*) FROM pluggy_inter_policy').fetchone()[0],0)
+        self.assertTrue(preview['full_history'])
+
     def test_config_can_add_inter_without_reentering_secret(self):
         self.pluggy.delete_config()
         self.pluggy.save_config({"client_id": "client", "client_secret": "secret", "item_id": XP_ID})

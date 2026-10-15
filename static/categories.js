@@ -1,4 +1,5 @@
 const categoryRange = document.querySelector("#categorization-range");
+const categoryEngine = document.querySelector("#categorization-engine");
 const categoryType = document.querySelector("#categorization-type");
 const categoryStatus = document.querySelector("#categorization-status");
 const categoryScopeHint = document.querySelector("#categorization-scope-hint");
@@ -43,7 +44,7 @@ async function refreshCategoryStatus() {
     const data = await request(`/categorization/status${suffix}`);
     if (requestId !== statusRequestId) return;
     categoryChoices = data.categories;
-    suggestButton.disabled = !data.connected || data.uncategorized_count === 0;
+    suggestButton.disabled = data.uncategorized_count === 0 || (categoryEngine.value === "hybrid" && !data.connected);
     connectChatGPTButton.hidden = data.connected;
     switchChatGPTButton.hidden = !data.connected;
     disconnectChatGPTButton.hidden = !data.connected;
@@ -67,7 +68,9 @@ async function refreshCategoryStatus() {
     const current = scope === "business" ? business : scope === "personal" ? personal :
       { account: personal.account + business.account, credit: personal.credit + business.credit };
     const breakdown = `Pendentes nesta visão: ${current.account} da conta/débito · ${current.credit} do cartão de crédito`;
-    categoryStatus.textContent = !data.connected
+    categoryStatus.textContent = categoryEngine.value === "local"
+      ? `${data.uncategorized_count} compras sem categoria. ${breakdown}. Aprendizado local por descrição e valor; sugestões precisam da sua revisão.`
+      : !data.connected
       ? `${data.uncategorized_count} compras sem categoria neste filtro. ${breakdown}. Conecte o ChatGPT para gerar sugestões.`
       : data.uncategorized_count
         ? `${data.uncategorized_count} compras sem categoria neste filtro. ${breakdown} · até 40 sugestões por vez${data.model ? ` · ${data.model}` : ""}.`
@@ -141,7 +144,7 @@ function renderCategorySuggestions(items, remainingCount) {
     checkLabel.className = "ai-category-check";
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
-    checkbox.checked = true;
+    checkbox.checked = Boolean(item.suggested_category);
     checkbox.setAttribute("aria-label", `Aplicar categoria a ${item.description}`);
     checkLabel.append(checkbox);
     const details = document.createElement("div");
@@ -149,37 +152,44 @@ function renderCategorySuggestions(items, remainingCount) {
     const name = document.createElement("strong");
     name.textContent = item.description;
     const meta = document.createElement("small");
-    meta.textContent = `${formatDate(item.occurred_on)} · ${money.format(item.amount_cents / 100)} · ${item.invoice_month ? "Cartão de crédito" : "Conta / débito"} · ${item.scope === "business" ? "PJ" : "Pessoal"} · ${item.suggestion_source === "learned" ? "Aprendido com você" : "Sugestão da IA"}`;
-    details.append(name, meta);
+    meta.textContent = `${formatDate(item.occurred_on)} · ${money.format(item.amount_cents / 100)} · ${item.invoice_month ? "Cartão de crédito" : "Conta / débito"} · ${item.scope === "business" ? "PJ" : "Pessoal"} · ${item.suggestion_source === "learned" ? "Aprendido com você" : item.suggestion_source === "knn" ? "kNN local · exemplos parecidos" : item.suggestion_source === "unresolved" ? "Precisa da sua classificação" : "Sugestão da IA"}`;
+    const reason = document.createElement("small");
+    reason.textContent = item.suggestion_reason || "Confira antes de aplicar.";
+    details.append(name, meta, reason);
     const select = document.createElement("select");
     select.setAttribute("aria-label", `Categoria de ${item.description}`);
+    const placeholder = document.createElement("option");
+    placeholder.value = ""; placeholder.textContent = "Escolha para ensinar o app"; placeholder.disabled = true;
+    select.append(placeholder);
     for (const category of categoryChoices) {
       const option = document.createElement("option");
       option.value = category;
       option.textContent = category;
       select.append(option);
     }
-    select.value = item.suggested_category;
+    select.value = item.suggested_category || "";
+    select.addEventListener("change", () => { checkbox.checked = Boolean(select.value); });
     row.append(checkLabel, details, select);
     categoryList.append(row);
   }
   categoryPreview.hidden = false;
-  const learnedCount = items.filter(item => item.suggestion_source === "learned").length;
-  categoryStatus.textContent = `${items.length} sugestões para revisar${learnedCount ? ` · ${learnedCount} aprendidas com você` : ""}.${remainingCount ? ` Mais ${remainingCount} compras aguardam outra rodada.` : ""}`;
+  const learnedCount = items.filter(item => ["learned", "knn"].includes(item.suggestion_source)).length;
+  const unresolved = items.filter(item => !item.suggested_category).length;
+  categoryStatus.textContent = `${items.length} compras para revisar${unresolved ? ` · ${unresolved} precisam de categoria manual` : ""}${learnedCount ? ` · ${learnedCount} aprendidas com você` : ""}.${remainingCount ? ` Mais ${remainingCount} compras aguardam outra rodada.` : ""}`;
 }
 
 suggestButton.addEventListener("click", async () => {
   clearCategoryPreview();
-  const context = { scope: scopeInput.value, month: categoryMonth(), payment_type: categoryType.value };
+  const context = { scope: scopeInput.value, month: categoryMonth(), payment_type: categoryType.value, engine: categoryEngine.value };
   let failed = false;
   suggestButton.disabled = true;
   categoryStatus.classList.remove("error");
-  categoryStatus.textContent = "Consultando o modelo para até 40 descrições...";
+  categoryStatus.textContent = categoryEngine.value === "local" ? "Comparando com seus exemplos aprovados neste Mac..." : "Consultando o aprendizado local e o ChatGPT para até 40 compras...";
   try {
     const result = await request("/categorization/suggest", {
       method: "POST", body: JSON.stringify(context),
     });
-    if (context.scope !== scopeInput.value || context.month !== categoryMonth() || context.payment_type !== categoryType.value) return;
+    if (context.scope !== scopeInput.value || context.month !== categoryMonth() || context.payment_type !== categoryType.value || context.engine !== categoryEngine.value) return;
     if (result.items.length) {
       previewContext = context;
       renderCategorySuggestions(result.items, result.remaining_count);
@@ -203,7 +213,7 @@ applyButton.addEventListener("click", async () => {
     return;
   }
   const items = [...categoryList.querySelectorAll(".ai-category-row")]
-    .filter(row => row.querySelector("input").checked)
+    .filter(row => row.querySelector("input").checked && row.querySelector("select").value)
     .map(row => ({ id: Number(row.dataset.id), category: row.querySelector("select").value }));
   if (!items.length) {
     categoryStatus.textContent = "Marque ao menos uma compra para aplicar.";
@@ -233,6 +243,7 @@ document.querySelector("#cancel-categories").addEventListener("click", () => {
   refreshCategoryStatus();
 });
 categoryRange.addEventListener("change", () => { clearCategoryPreview(); refreshCategoryStatus(); });
+categoryEngine.addEventListener("change", () => { clearCategoryPreview(); refreshCategoryStatus(); });
 categoryType.addEventListener("change", () => { clearCategoryPreview(); refreshCategoryStatus(); });
 document.querySelector("#categorization-switch-pj").addEventListener("click", () => {
   categoryType.value = "account";

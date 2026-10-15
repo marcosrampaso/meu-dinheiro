@@ -150,7 +150,7 @@ document.querySelector("#review-save").addEventListener("click", async () => {
     reviewDrafts.clear();
     document.dispatchEvent(new Event("finance-data-change"));
     await refreshReview();
-    reviewStatus(`${result.applied} categorias corrigidas · ${result.learned} regras de estabelecimento guardadas para novas compras.`);
+    reviewStatus(`${result.applied} categorias corrigidas · ${result.learned_examples} exemplos salvos para o aprendizado local por descrição e valor.`);
   } catch (error) { reviewStatus(error.message, true); updateReviewSave(); }
   finally { reviewFilters.inert = false; document.querySelector("#review-list").inert = false; }
 });

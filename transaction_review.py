@@ -6,6 +6,7 @@ import json
 import re
 
 from finance import PURCHASE_CATEGORIES, ValidationError, merchant_key, validate_month, validate_scope
+from category_learning import learnable
 from plan_insights import _ignored, _income, _plain, NON_SPENDING
 
 
@@ -112,7 +113,8 @@ def apply_review(store, data):
         for row, item in zip(originals, items):
             category = item["category"].strip()
             connection.execute("UPDATE transactions SET category=? WHERE id=?", (category, row["id"]))
-            if row["kind"] == "expense" and merchant_key(row["description"]) and category in PURCHASE_CATEGORIES:
+            store._record_category_example(connection, row["id"], learn=remember)
+            if row["kind"] == "expense" and merchant_key(row["description"]) and learnable(category):
                 rules[(row["scope"], row["description"])].add(category)
         # A mixed purchase at one merchant must not become an ambiguous automatic rule.
         by_key = defaultdict(set)
@@ -123,4 +125,7 @@ def apply_review(store, data):
                 if len(by_key[(row_scope, merchant_key(description))]) == 1:
                     store._remember_category(connection, description, row_scope, next(iter(categories)))
             learned = sum(len(categories) == 1 for categories in by_key.values())
-    return {"applied": len(items), "learned": learned}
+    examples = sum(remember and row['kind'] == 'expense' and not row['pending'] and
+        bool(merchant_key(row['description'])) and learnable(item['category'].strip())
+        for row,item in zip(originals,items))
+    return {"applied": len(items), "learned": learned, "learned_examples": examples}

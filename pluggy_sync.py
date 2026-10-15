@@ -126,7 +126,7 @@ def restore_inter_history(store, historical_items, starts_on, statement_periods=
             matches = _matches(row, [r for r in restored if r["source"] == row["source"]])
             connection.execute("UPDATE investment_entries SET matched_transaction_id=? WHERE matched_transaction_id=?",
                                (matches[0]["id"] if len(matches) == 1 else None, row["id"]))
-        connection.execute("INSERT OR REPLACE INTO pluggy_inter_policy VALUES (1,?,?)", (starts_on, card_starts_on))
+        connection.execute("INSERT OR REPLACE INTO pluggy_inter_policy(singleton,starts_on,card_starts_on) VALUES (1,?,?)", (starts_on, card_starts_on))
         for source in sources:
             connection.execute("DELETE FROM authoritative_periods WHERE source=? AND scope='personal'", (source,))
             connection.execute("INSERT INTO authoritative_periods(source,scope,starts_on,ends_on) VALUES (?,'personal',?,?)",
@@ -153,17 +153,22 @@ def apply_inter(store, pending):
     with store._connect() as connection:
         connection.execute("BEGIN IMMEDIATE")
         advance_revision(connection,'Inter',pending['revision'])
-        connection.execute("INSERT OR IGNORE INTO pluggy_inter_policy VALUES (1,?,?)",
+        connection.execute("INSERT OR IGNORE INTO pluggy_inter_policy(singleton,starts_on,card_starts_on) VALUES (1,?,?)",
                            (pending["starts_on"], pending['card_starts_on']))
+        if pending.get('full_history'):
+            connection.execute("""UPDATE pluggy_inter_policy SET account_history_start=CASE
+                WHEN account_history_start IS NULL OR account_history_start > ? THEN ? ELSE account_history_start END
+                WHERE singleton=1""", (pending['account_history_start'],pending['account_history_start']))
         old = _old_inter(connection, pending["periods"])
-        memory = {(r["scope"], r["merchant_key"]): r["category"] for r in connection.execute("SELECT * FROM category_memory")}
+        from category_learning import exact_categories, example_key
+        memory = exact_categories(connection, [{**item,'id':index} for index,item in enumerate(pending['items'])])
         old_by_source = defaultdict(list)
         for row in old:
             old_by_source[row["source"]].append(row)
         if old:
             connection.executemany("DELETE FROM transactions WHERE id=?", [(r["id"],) for r in old])
         remapped = {}
-        for original in pending["items"]:
+        for index, original in enumerate(pending["items"]):
             item = dict(original)
             matches = _matches(item, old_by_source[item["source"]])
             classified = {(r["category"], r["excluded"]) for r in matches if r["category"] != "Importado"}
@@ -171,7 +176,7 @@ def apply_inter(store, pending):
                 item["category"], item["excluded"] = classified.pop()
                 preserved += 1
             elif item["category"] == "Importado":
-                remembered = memory.get((item["scope"], merchant_key(item["description"])))
+                remembered = memory.get(index)
                 if remembered:
                     item["category"] = remembered
                     preserved += 1
@@ -182,8 +187,23 @@ def apply_inter(store, pending):
                 category=excluded.category,amount_cents=excluded.amount_cents,occurred_on=excluded.occurred_on,
                 excluded=excluded.excluded,invoice_month=excluded.invoice_month,pending=excluded.pending""", item)
             new_id = connection.execute("SELECT id FROM transactions WHERE import_key=?", (item["import_key"],)).fetchone()[0]
+            # Move reviewed training labels to stable provider keys when a manual/CSV
+            # transaction is replaced. Never train on inferred merchant-rule assignments.
             for row in matches:
                 remapped[row["id"]] = new_id
+                old_key = example_key(row)
+                sample = connection.execute('SELECT * FROM category_examples WHERE example_key=?',(old_key,)).fetchone()
+                if sample and sample['category'] == item['category']:
+                    new_key = example_key({**item,'id':new_id})
+                    if new_key != old_key:
+                        connection.execute('DELETE FROM category_examples WHERE example_key=?',(old_key,))
+                    connection.execute("""INSERT INTO category_examples
+                        (example_key,scope,merchant_key,description,amount_cents,payment_type,category)
+                        VALUES (?,?,?,?,?,?,?) ON CONFLICT(example_key) DO UPDATE SET
+                        description=excluded.description,merchant_key=excluded.merchant_key,amount_cents=excluded.amount_cents,
+                        payment_type=excluded.payment_type,updated_at=CURRENT_TIMESTAMP""",
+                        (new_key,item['scope'],merchant_key(item['description']) or sample['merchant_key'],item['description'],
+                         item['amount_cents'],'credit' if item['invoice_month'] else 'account',item['category']))
         for row in old:
             connection.execute("UPDATE investment_entries SET matched_transaction_id=? WHERE matched_transaction_id=?",
                                (remapped.get(row["id"]), row["id"]))
