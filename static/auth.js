@@ -15,6 +15,103 @@ const localAuth = (() => {
   let gate = new Promise(resolve => { resolveGate = resolve; });
   let timer = null;
   let expiresAt = 0;
+  const storageKey = "local-idle-session-v1";
+  let sessionMilliseconds = 300000;
+  let lastActivityAt = 0;
+  let lastReportedActivityAt = 0;
+  let lastRenewedAt = 0;
+  let activityTimer = null;
+  let renewing = false;
+
+  function rememberSession() {
+    try {
+      if (token) window.sessionStorage.setItem(storageKey, JSON.stringify({ token,
+        last_activity_at: lastActivityAt, expires_at: expiresAt, session_seconds: sessionMilliseconds / 1000 }));
+      else window.sessionStorage.removeItem(storageKey);
+    } catch (_) { /* The current page still works when tab storage is unavailable. */ }
+  }
+
+  function checkIdle() {
+    if (!token) return;
+    window.clearTimeout(timer);
+    if (Date.now() >= expiresAt) {
+      lock();
+      status.textContent = "Sessão pausada após cinco minutos sem atividade. Desbloqueie para continuar de onde parou.";
+    } else timer = window.setTimeout(checkIdle, Math.max(1, expiresAt - Date.now()));
+  }
+
+  function establishSession(authToken, accessMethod, duration, lastActive, deadline) {
+    token = authToken; method = accessMethod;
+    sessionMilliseconds = duration * 1000;
+    lastActivityAt = lastActive;
+    lastReportedActivityAt = lastActive;
+    lastRenewedAt = Date.now();
+    expiresAt = Math.min(deadline, lastActive + sessionMilliseconds);
+    rememberSession();
+    document.body.classList.remove("locked"); overlay.hidden = true;
+    resolveGate(token); checkIdle();
+  }
+
+  async function restoreSession() {
+    let saved;
+    try { saved = JSON.parse(window.sessionStorage.getItem(storageKey)); } catch (_) { return; }
+    if (!saved) return;
+    const now = Date.now();
+    if (typeof saved.token !== "string" || saved.token.length > 100 ||
+        !Number.isFinite(saved.last_activity_at) || saved.last_activity_at > now ||
+        !Number.isFinite(saved.expires_at) || saved.expires_at <= now || saved.session_seconds !== 300) {
+      rememberSession(); return;
+    }
+    try {
+      const started = Date.now();
+      const response = await fetch("/api/v1/local-auth/session", {
+        headers: { "X-Local-Session": saved.token }, cache: "no-store",
+      });
+      const result = await response.json();
+      const deadline = Math.min(saved.expires_at, started + result.remaining_seconds * 1000);
+      if (!response.ok || !Number.isFinite(result.remaining_seconds) || result.remaining_seconds <= 0 ||
+          result.session_seconds !== 300 || deadline <= Date.now()) { rememberSession(); return; }
+      establishSession(saved.token, result.method, result.session_seconds, saved.last_activity_at, deadline);
+      await refreshStatus();
+    } catch (_) { rememberSession(); }
+  }
+
+  function queueActivity() {
+    if (!token || renewing || activityTimer !== null || lastActivityAt <= lastReportedActivityAt) return;
+    activityTimer = window.setTimeout(() => { activityTimer = null; void renewActivity(); },
+      Math.max(0, 15000 - (Date.now() - lastRenewedAt)));
+  }
+
+  async function renewActivity() {
+    if (!token || renewing || lastActivityAt <= lastReportedActivityAt) return;
+    checkIdle(); if (!token) return;
+    const authToken = token, activityAt = lastActivityAt;
+    renewing = true; lastRenewedAt = Date.now();
+    try {
+      const response = await fetch("/api/v1/local-auth/activity", {
+        method: "POST", headers: { "Content-Type": "application/json", "X-Local-Session": authToken },
+        body: JSON.stringify({ idle_for_ms: Math.max(0, Math.round(Date.now() - activityAt)) }),
+        cache: "no-store", keepalive: true,
+      });
+      if (token !== authToken) return;
+      if (response.status === 401) { lock(); status.textContent = "Sessão encerrada. Desbloqueie para continuar."; return; }
+      if (response.ok) lastReportedActivityAt = Math.max(lastReportedActivityAt, activityAt);
+    } catch (_) { /* Server expiry still applies; a later real interaction may retry. */ }
+    finally {
+      if (token === authToken) {
+        renewing = false;
+        if (lastActivityAt > activityAt) queueActivity();
+      }
+    }
+  }
+
+  function onActivity(event) {
+    if (!event.isTrusted || document.hidden || !document.hasFocus() || !token) return;
+    checkIdle(); if (!token) return;
+    if (event.type === "pointermove" && Date.now() - lastActivityAt < 1000) return;
+    lastActivityAt = Date.now(); expiresAt = lastActivityAt + sessionMilliseconds;
+    rememberSession(); checkIdle(); queueActivity();
+  }
 
   function renderStatus(result) {
     button.hidden = !result.touch_id_available;
@@ -50,7 +147,10 @@ const localAuth = (() => {
     passwordLogin.reset();
     settingsForm.reset();
     window.clearTimeout(timer);
+    window.clearTimeout(activityTimer); activityTimer = null; renewing = false;
     expiresAt = 0;
+    lastActivityAt = 0; lastReportedActivityAt = 0;
+    rememberSession();
     document.body.classList.add("locked");
     overlay.hidden = false;
     status.textContent = "";
@@ -77,16 +177,8 @@ const localAuth = (() => {
         });
         return;
       }
-      token = result.token;
-      method = accessMethod;
-      document.body.classList.remove("locked");
-      overlay.hidden = true;
-      resolveGate(token);
-      expiresAt = Date.now() + result.session_seconds * 1000;
-      timer = window.setTimeout(() => {
-        lock();
-        window.location.reload();
-      }, result.session_seconds * 1000);
+      const now = Date.now();
+      establishSession(result.token, accessMethod, result.session_seconds, now, now + result.session_seconds * 1000);
       await refreshStatus();
     } catch (error) {
       status.textContent = error.message;
@@ -123,7 +215,7 @@ const localAuth = (() => {
       });
       const result = await response.json();
       settingsForm.reset();
-      if (response.status === 401) { lock(); window.location.reload(); return; }
+      if (response.status === 401) { lock(); return; }
       if (!response.ok) throw new Error(result.error || "Não foi possível atualizar a senha local.");
       renderStatus(result);
       settingsStatus.textContent = remove ? "Senha removida. O acesso continua por Touch ID." : "Senha local salva. Ela estará disponível na próxima tela de acesso.";
@@ -136,7 +228,7 @@ const localAuth = (() => {
     }
   }
 
-  async function lockAndReload() {
+  async function lockExplicitly() {
     if (token) {
       try {
         await fetch("/api/v1/local-auth/lock", {
@@ -146,20 +238,27 @@ const localAuth = (() => {
       } catch (_) { /* The session also expires on the server. */ }
     }
     lock();
-    window.location.reload();
   }
 
   button.addEventListener("click", () => unlock("touch_id"));
   passwordLogin.addEventListener("submit", event => { event.preventDefault(); unlock("password"); });
   settingsForm.addEventListener("submit", event => { event.preventDefault(); configurePassword(false); });
   removeButton.addEventListener("click", () => configurePassword(true));
-  lockButton.addEventListener("click", lockAndReload);
+  lockButton.addEventListener("click", lockExplicitly);
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && token && Date.now() >= expiresAt) {
-      lock();
-      window.location.reload();
-    }
+    if (!document.hidden) checkIdle();
+    else void renewActivity(); // Flush a preceding real interaction; hiding is not activity.
   });
-  refreshStatus();
-  return { ready: () => gate, token: () => token, lock };
+  window.addEventListener("focus", checkIdle);
+  window.addEventListener("pageshow", checkIdle);
+  window.addEventListener("pagehide", () => { void renewActivity(); });
+  for (const type of ["pointerdown", "pointermove", "keydown", "input", "wheel", "touchstart"]) {
+    document.addEventListener(type, onActivity, { capture: true, passive: true });
+  }
+  button.disabled = true; passwordButton.disabled = true;
+  void (async () => {
+    await refreshStatus(); await restoreSession();
+    button.disabled = false; passwordButton.disabled = false;
+  })();
+  return { ready: () => { checkIdle(); return gate; }, token: () => token, lock };
 })();

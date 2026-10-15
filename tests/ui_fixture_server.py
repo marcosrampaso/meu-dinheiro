@@ -54,6 +54,12 @@ class FixtureAuth:
     def lock(self, token):
         pass
 
+    def session_info(self, token):
+        return {"principal_id":"synthetic-owner","method":"touch_id","session_seconds":300,"remaining_seconds":300} if self.valid(token) else None
+
+    def record_activity(self, token, idle_for_ms=0):
+        return {"session_seconds":300,"remaining_seconds":300} if self.valid(token) else None
+
 
 class FixtureServer(ThreadingHTTPServer):
     request_queue_size = 64
@@ -66,6 +72,28 @@ class PasswordFixtureAuth(LocalAuth):
 
     def unlock(self):
         return self._create_session("touch_id")
+
+
+class IdleFixtureAuth(PasswordFixtureAuth):
+    def _now(self):
+        return self.fixture_now
+
+    def __init__(self, *args):
+        self.fixture_now = 1000.0
+        super().__init__(*args)
+
+
+class IdleFixtureHandler(FinanceHandler):
+    # Test-only clock controls; never used by the application server.
+    def do_POST(self):
+        if self.path == "/test/advance":
+            data = self._read_json()
+            seconds = data.get("seconds", 0)
+            assert isinstance(seconds, int) and 0 <= seconds <= 3600
+            self.server.local_auth.fixture_now += seconds
+            self._json(200, {"advanced":seconds})
+        else:
+            super().do_POST()
 
 
 def stop(signum, frame):
@@ -82,9 +110,10 @@ def main():
                    "category":"Mercado","scope":"personal","occurred_on":date.today().isoformat()})
         if "--history" in sys.argv:
             seed_history(store)
-        with FixtureServer(("127.0.0.1", 0), FinanceHandler) as server:
+        with FixtureServer(("127.0.0.1", 0), IdleFixtureHandler if "--idle-auth" in sys.argv else FinanceHandler) as server:
             server.store = store
-            server.local_auth = (PasswordFixtureAuth(base / "unused.swift", base)
+            server.local_auth = (IdleFixtureAuth(base / "unused.swift", base) if "--idle-auth" in sys.argv else
+                                 PasswordFixtureAuth(base / "unused.swift", base)
                                  if "--password-auth" in sys.argv else FixtureAuth())
             server.auth = ChatGPTAuth(base / "auth.json")
             server.cdi = CDIBenchmark(store)

@@ -216,7 +216,7 @@ class FinanceHandler(BaseHTTPRequestHandler):
                 "session_seconds": SESSION_SECONDS})
             return
         if path == API_PREFIX + "/local-auth/session":
-            self._json(HTTPStatus.OK, self.server.local_auth.principal(
+            self._json(HTTPStatus.OK, self.server.local_auth.session_info(
                 self.headers.get("X-Local-Session")))
             return
         if path == "/auth/callback":
@@ -378,6 +378,12 @@ class FinanceHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.OK, self.server.local_auth.configure_password(
                 self.headers.get("X-Local-Session"), data.get("password"),
                 data.get("current_password"), remove=data.get("remove") is True))
+            return
+        if path == API_PREFIX + "/local-auth/activity":
+            data = self._read_json()
+            state = self.server.local_auth.record_activity(self.headers.get("X-Local-Session"), data.get("idle_for_ms", 0))
+            self._json(HTTPStatus.OK if state else HTTPStatus.UNAUTHORIZED,
+                       state or {"error": "Sessão expirada. Desbloqueie o aplicativo para continuar."})
             return
         if path == API_PREFIX + "/local-auth/lock":
             self._read_json()

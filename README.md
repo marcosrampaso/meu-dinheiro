@@ -22,7 +22,7 @@ O banco padrão fica em `data/financas.db` e é criado na primeira execução. *
 
 ## Acesso local: Touch ID e senha
 
-Ao abrir ou atualizar a página, desbloqueie com **Touch ID** ou com a **senha local do aplicativo**, se já estiver cadastrada. A API financeira exige uma sessão aprovada por uma dessas formas. A sessão dura cinco minutos a partir do login e fica apenas na memória do navegador e do servidor. Minimizar ou trocar de aba preserva o acesso nesse prazo. **Bloquear**, fechar ou atualizar a página exige novo login; a sessão também expira no servidor.
+Ao abrir, desbloqueie com **Touch ID** ou com a **senha local do aplicativo**, se já estiver cadastrada. A API financeira exige uma sessão aprovada. O acesso expira após **cinco minutos sem atividade**: digitar, clicar, mover o ponteiro ou rolar na página visível e em foco renova esse prazo; consultas automáticas não renovam. Minimizar ou trocar de aba não encerra a sessão antes desse prazo. O token fica na memória do servidor e no `sessionStorage` da aba, permitindo **F5 sem novo login enquanto a sessão for válida**. Recarregar consulta a validade no servidor e não reinicia o prazo de inatividade. Bloquear manualmente revoga a sessão; fechar a aba, expirar ou reiniciar o servidor exige novo login. Ao bloquear por inatividade, a página preserva os rascunhos dos formulários financeiros para continuar após desbloquear.
 
 Para cadastrar a primeira senha, entre com Touch ID e abra **Configurações → Acesso ao aplicativo**. Use pelo menos 12 caracteres e confirme a nova senha. Ao entrar por senha, informe a senha atual para alterá-la ou removê-la. Uma sessão aprovada por Touch ID pode definir uma nova senha sem a anterior. Não há recuperação por e-mail ou senha do macOS. A remoção fica bloqueada quando o Touch ID está indisponível, para evitar ficar sem acesso.
 
@@ -211,7 +211,8 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | GET | `/local-auth/status` | Formas de login disponíveis; não contém identidade nem credenciais |
 | POST | `/local-auth/unlock` | Criar sessão mediante Touch ID |
 | POST | `/local-auth/password-login` | Criar sessão mediante senha local já cadastrada |
-| GET | `/local-auth/session` | Identidade e método da sessão atual; exige login |
+| GET | `/local-auth/session` | Identidade, método e validade restante; exige login, sem renovar |
+| POST | `/local-auth/activity` | Renovar sessão válida após interação; recebe `idle_for_ms`, exige login e mesma origem |
 | POST | `/local-auth/password` | Cadastrar, alterar ou remover senha local; exige login e mesma origem |
 | POST | `/local-auth/lock` | Revogar a sessão atual |
 | POST | `/auth/chatgpt/start` | Abrir autorização do ChatGPT |

@@ -106,10 +106,13 @@ class LocalAuth:
                 "password_configured": self._identity.get("password") is not None,
                 "session_seconds": SESSION_SECONDS}
 
+    def _now(self) -> float:
+        return time.monotonic()
+
     def _create_session(self, method: str) -> str:
         token = secrets.token_urlsafe(32)
         with self._lock:
-            now = time.monotonic()
+            now = self._now()
             self._sessions = {key: session for key, session in self._sessions.items()
                               if session["expires_at"] > now}
             self._sessions[hashlib.sha256(token.encode()).digest()] = {
@@ -187,13 +190,44 @@ class LocalAuth:
         digest = hashlib.sha256(token.encode()).digest()
         with self._lock:
             session = self._sessions.get(digest)
-            if not session or session["expires_at"] <= time.monotonic():
+            if not session or session["expires_at"] <= self._now():
                 self._sessions.pop(digest, None)
                 return None
             return {"principal_id": session["principal_id"], "method": session["method"]}
 
     def valid(self, token: str | None) -> bool:
         return self.principal(token) is not None
+
+    def session_info(self, token: str | None) -> dict | None:
+        """Read the idle deadline without renewing it (including reloads and polls)."""
+        if not isinstance(token, str) or len(token) > 100:
+            return None
+        digest = hashlib.sha256(token.encode()).digest()
+        with self._lock:
+            session = self._sessions.get(digest)
+            now = self._now()
+            if not session or session["expires_at"] <= now:
+                self._sessions.pop(digest, None)
+                return None
+            return {"principal_id": session["principal_id"], "method": session["method"],
+                    "remaining_seconds": session["expires_at"] - now, "session_seconds": SESSION_SECONDS}
+
+    def record_activity(self, token: str | None, idle_for_ms: int = 0) -> dict | None:
+        """Renew only a still-valid session after an explicit activity notification."""
+        if isinstance(idle_for_ms, bool) or not isinstance(idle_for_ms, int) or not 0 <= idle_for_ms < SESSION_SECONDS * 1000:
+            raise LocalAuthError("Atividade inválida ou antiga demais para renovar a sessão.")
+        if not isinstance(token, str) or len(token) > 100:
+            return None
+        digest = hashlib.sha256(token.encode()).digest()
+        with self._lock:
+            now = self._now()
+            session = self._sessions.get(digest)
+            if not session or session["expires_at"] <= now:
+                self._sessions.pop(digest, None)
+                return None
+            # A throttled last event may arrive later. Its age must not extend inactivity.
+            session["expires_at"] = max(session["expires_at"], now + SESSION_SECONDS - idle_for_ms / 1000)
+            return {"session_seconds": SESSION_SECONDS, "remaining_seconds": session["expires_at"] - now}
 
     def configure_password(self, token: str | None, password, current_password=None, remove=False) -> dict:
         session = self.principal(token)

@@ -25,6 +25,25 @@ class PasswordApiTests(unittest.TestCase):
     def tearDown(self):
         self.directory.cleanup()
 
+    def test_activity_renews_only_valid_same_origin_session_and_reads_do_not_extend(self):
+        with patch.object(self.server.local_auth, '_now', return_value=100.0) as clock:
+            token = self.server.local_auth._create_session('touch_id')
+            headers = {'X-Local-Session': token}
+            endpoint = '/api/v1/local-auth/activity'
+            self.assertEqual(self.call(endpoint, 'POST', {})[0], 401)
+            self.assertEqual(self.call(endpoint, 'POST', {},
+                {**headers, 'Origin':'https://other.example'})[0], 403)
+            clock.return_value = 350.0
+            status, result = self.call('/api/v1/local-auth/session', headers=headers)
+            self.assertEqual((status, result['remaining_seconds']), (200, 50))
+            self.assertEqual(self.call(endpoint, 'POST', {'idle_for_ms': 1000}, headers)[0], 200)
+            clock.return_value = 450.0
+            status, result = self.call('/api/v1/local-auth/session', headers=headers)
+            self.assertEqual((status, result['remaining_seconds']), (200, 199))
+            clock.return_value = 649.0
+            self.assertEqual(self.call(endpoint, 'POST', {}, headers)[0], 401)
+            self.assertEqual(self.call('/api/v1/local-auth/session', headers=headers)[0], 401)
+
     def test_public_status_protected_configuration_and_origin_guards(self):
         status, state = self.call('/api/v1/local-auth/status')
         self.assertEqual(status, 200)

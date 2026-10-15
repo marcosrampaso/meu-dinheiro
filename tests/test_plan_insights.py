@@ -68,6 +68,17 @@ class PlanInsightTests(unittest.TestCase):
         self.assertEqual(result["categories"][0]["minimum_cents"], 10000)
         self.assertIsNone(history_insights(self.store, "business", today=self.today)["average_spending_cents"])
 
+    def test_coverage_explains_missing_account_days_even_with_registered_invoice(self):
+        self.add("2026-09", "Mercado", invoice="2026-09")
+        self.store.save_invoice_coverage("Cartão exemplo", "personal", "2026-09")
+        self.store.save_account_statement("Conta exemplo", "personal",
+            {"starts_on":"2026-09-09", "ends_on":"2026-09-30"}, [])
+        month = history_insights(self.store, today=self.today)["monthly"][-1]
+        self.assertEqual(month["coverage"], "partial")
+        self.assertEqual(month["accounts"], [{"source":"Conta exemplo", "complete":False,
+            "covered_days":22, "expected_days":30}])
+        self.assertTrue(month["cards"][0]["registered"])
+
     def test_three_documented_months_replace_partial_samples_in_averages(self):
         for month in ["2026-07", "2026-08", "2026-09"]:
             self.coverage(month, card=True)

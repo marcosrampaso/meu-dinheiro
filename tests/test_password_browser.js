@@ -62,6 +62,9 @@ async function main() {
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
     assert.equal(await page.evaluate(() => document.body.classList.contains('locked')), false);
     await page.reload();
+    await page.waitForFunction(() => !document.body.classList.contains('locked'));
+    assert.ok(await page.evaluate(() => localAuth.token()));
+    await page.locator('#local-lock-button').click();
     await page.locator('#local-password-login').waitFor({ state: 'visible' });
     assert.equal(await page.evaluate(() => localAuth.token()), null);
     await page.locator('#local-password-login [name="password"]').fill('Segunda senha ficticia 42!');

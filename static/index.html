@@ -422,7 +422,7 @@
             <p>Cadastre uma senha própria deste aplicativo como alternativa ao Touch ID. Existe somente seu usuário local; conexões bancárias e login do ChatGPT são acessos separados.</p>
             <form id="local-password-settings">
               <div class="form-row"><label>Senha atual<input name="current_password" type="password" autocomplete="current-password" maxlength="256" placeholder="Obrigatória ao entrar por senha"></label><label>Nova senha local<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="256" placeholder="Pelo menos 12 caracteres"></label><label>Confirme a nova senha<input name="password_confirmation" type="password" autocomplete="new-password" minlength="12" maxlength="256"></label></div>
-              <p class="chart-note">O primeiro cadastro exige acesso com Touch ID. Ao entrar por senha, informe a senha atual para alterá-la ou removê-la. Cada acesso dura cinco minutos. Não há recuperação por e-mail; o Touch ID permite definir uma nova senha.</p>
+              <p class="chart-note">O primeiro cadastro exige acesso com Touch ID. Ao entrar por senha, informe a senha atual para alterá-la ou removê-la. O acesso bloqueia após cinco minutos sem atividade. Recarregar mantém a sessão válida. Não há recuperação por e-mail; o Touch ID permite definir uma nova senha.</p>
               <div class="form-actions"><button id="local-password-save" class="primary-button" type="submit">Salvar senha local</button><button id="local-password-remove" class="text-button" type="button" hidden>Remover senha local</button></div>
             </form>
             <p id="local-password-settings-status" class="import-status" role="status" aria-live="polite"></p>

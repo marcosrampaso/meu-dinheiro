@@ -37,7 +37,7 @@ async function main() {
     assert.match(await page.locator("#plan-target").textContent(), /7\.200,00/);
     assert.equal(await page.locator("#plan-payments").textContent(), "18 aportes");
     await page.reload();
-    await page.locator("#local-auth-button").click();
+    await page.waitForFunction(() => !document.body.classList.contains("locked"));
     await page.waitForFunction(() => document.querySelector('#reserve-plan-form input[name="monthly_contribution"]').value === "400,00");
     assert.equal(await fields("name").inputValue(), "Reserva demonstração");
     await fields("reserved_balance").fill("600,00");

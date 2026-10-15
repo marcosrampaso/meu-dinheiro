@@ -327,8 +327,11 @@ async function refreshPlanHistory() {
       const chip = planHistoryElement("div", "", `history-month-chip ${month.coverage}`);
       chip.append(planHistoryElement("strong", month.month.split("-").reverse().join("/")), planHistoryElement("span",
         month.coverage === "documented" ? "Cobertura documentada" : month.coverage === "partial" ? "Cobertura parcial" : "Sem cobertura"));
-      chip.title = [...month.accounts.map(row => `${row.source}: ${row.complete ? "extrato completo" : "faltam dias de extrato"}`),
-        ...month.cards.map(row => `${row.source}: ${row.registered ? "fatura registrada" : "fatura ausente"}`)].join(" · ");
+      const details = [...month.accounts.map(row => `${row.source}: ${row.covered_days} de ${row.expected_days} dias de extrato`),
+        ...month.cards.map(row => `${row.source}: ${row.registered ? "fatura registrada" : "fatura ausente"}`),
+        ...(month.pending_count ? [`${month.pending_count} lançamentos pendentes`] : [])];
+      chip.title = details.join(" · ");
+      for (const detail of details) chip.append(planHistoryElement("small", detail));
       return chip;
     }));
     document.querySelector("#history-quality-summary").textContent = data.quality === "documented" ? "Conferir cobertura e limites da análise" : "Base provisória: confira o que falta no histórico";

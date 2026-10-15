@@ -38,6 +38,34 @@ class LocalAuthTests(unittest.TestCase):
         clock.return_value = 103.0 + SESSION_SECONDS
         self.assertFalse(self.auth.valid(token))
 
+    @patch("local_auth.time.monotonic", return_value=100.0)
+    def test_only_activity_renews_and_late_notifications_cannot_resurrect_expired_session(self, clock):
+        token = self.auth._create_session('touch_id')
+        clock.return_value = 350.0
+        self.assertEqual(self.auth.session_info(token)['remaining_seconds'], 50)
+        self.assertTrue(self.auth.valid(token))
+        self.assertEqual(self.auth.session_info(token)['remaining_seconds'], 50)
+        self.auth.record_activity(token)
+        clock.return_value = 450.0
+        self.assertEqual(self.auth.session_info(token)['remaining_seconds'], 200)
+        clock.return_value = 650.0
+        self.assertIsNone(self.auth.record_activity(token))
+        self.assertIsNone(self.auth.session_info(token))
+
+    @patch("local_auth.time.monotonic", return_value=100.0)
+    def test_activity_age_preserves_true_idle_deadline_and_locked_tokens_stay_revoked(self, clock):
+        token = self.auth._create_session('password')
+        clock.return_value = 200.0
+        renewed = self.auth.record_activity(token, 15000)
+        self.assertEqual(renewed['remaining_seconds'], 285)
+        # An older request must not shorten the newer deadline.
+        self.auth.record_activity(token, 90000)
+        self.assertEqual(self.auth.session_info(token)['remaining_seconds'], 285)
+        for invalid in [-1, True, 1.5, '1', SESSION_SECONDS * 1000]:
+            with self.assertRaises(LocalAuthError): self.auth.record_activity(token, invalid)
+        self.auth.lock(token)
+        self.assertIsNone(self.auth.record_activity(token))
+
 
 if __name__ == "__main__":
     unittest.main()

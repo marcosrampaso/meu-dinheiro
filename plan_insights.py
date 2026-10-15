@@ -109,9 +109,11 @@ def history_insights(store, scope="personal", months=6, today=None):
     for month in window:
         start = date.fromisoformat(month + "-01")
         end = date(start.year, start.month, calendar.monthrange(start.year, start.month)[1])
-        accounts = [{"source": source, "complete": _days_covered(
-            [row for row in periods if row["source"] == source], start, end) == end.day}
-                    for source in sorted(account_sources)]
+        accounts = []
+        for source in sorted(account_sources):
+            covered = _days_covered([row for row in periods if row["source"] == source], start, end)
+            accounts.append({"source": source, "complete": covered == end.day,
+                             "covered_days": covered, "expected_days": end.day})
         cards = [{"source": source, "registered": (source, month) in coverage_keys}
                  for source in sorted(card_sources)]
         observed = [row for row in relevant if _basis_month(row) == month]

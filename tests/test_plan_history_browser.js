@@ -27,6 +27,8 @@ async function main() {
     assert.equal(await page.locator("#history-confirmed-income").inputValue(), "");
     assert.equal(await page.locator("#history-apply-base").isDisabled(), true);
     assert.match(await page.locator("#history-base").textContent(), /3 de 6 meses/);
+    assert.match(await page.locator("#history-months").textContent(), /de \d+ dias de extrato/);
+    assert.match(await page.locator("#history-months").textContent(), /fatura registrada/);
     assert.equal(await page.locator("#history-categories select").count(), 5);
     await page.locator('#history-categories select[data-category="Assinaturas"]').selectOption("essential");
     await page.locator("#history-use-income").click();
@@ -46,7 +48,7 @@ async function main() {
     await page.locator("#plan-save").click();
     await page.waitForFunction(() => document.querySelector("#plan-save-state").textContent === "Plano salvo");
     await page.reload();
-    await page.locator("#local-auth-button").click();
+    await page.waitForFunction(() => !document.body.classList.contains("locked"));
     await page.waitForFunction(() => document.querySelector('#reserve-plan-form input[name="essential_expenses"]').value === "1450,00");
     await page.waitForFunction(() => document.querySelector("#history-confirmed-income").value === "3500,00");
     assert.equal(await page.locator('#history-categories select[data-category="Assinaturas"]').inputValue(), "essential");
