@@ -2,7 +2,7 @@
   "name": "meu-dinheiro-ui-tests",
   "private": true,
   "scripts": {
-    "test": "node tests/test_browser_scripts.js && node tests/test_privacy_browser.js && node tests/test_plans_browser.js && node tests/test_plan_history_browser.js && node tests/test_password_browser.js && node tests/test_idle_session_browser.js && node tests/test_learning_browser.js && node tests/test_review_expected_browser.js"
+    "test": "node tests/test_browser_scripts.js && node tests/test_privacy_browser.js && node tests/test_plans_browser.js && node tests/test_plan_history_browser.js && node tests/test_password_browser.js && node tests/test_idle_session_browser.js && node tests/test_learning_browser.js && node tests/test_payment_views_browser.js && node tests/test_review_expected_browser.js"
   },
   "devDependencies": {
     "playwright": "1.62.1"

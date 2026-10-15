@@ -92,6 +92,12 @@ def validate_month(value: str) -> str:
     return value
 
 
+def validate_payment_type(value: str) -> str:
+    if value not in ('all', 'account', 'credit'):
+        raise ValidationError('Escolha conta corrente, cartão de crédito ou ambos.')
+    return value
+
+
 def validate_scope(value: str, allow_all: bool = False) -> str:
     if value not in (("personal", "business", "all") if allow_all else ("personal", "business")):
         raise ValidationError("Escolha Pessoal ou PJ.")
@@ -576,15 +582,18 @@ class FinanceStore:
             if cursor.rowcount == 0:
                 raise NotFoundError("Lançamento não encontrado.")
 
-    def list_month(self, month: str, scope: str = "personal") -> list[dict]:
+    def list_month(self, month: str, scope: str = "personal", payment_type: str = "all") -> list[dict]:
+        payment_type = validate_payment_type(payment_type)
         month = validate_month(month)
         scope = validate_scope(scope, allow_all=True)
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT * FROM transactions WHERE (invoice_month = ? OR "
                 "(invoice_month IS NULL AND occurred_on >= ? AND occurred_on < ?)) "
-                "AND (? = 'all' OR scope = ?) ORDER BY occurred_on DESC, id DESC",
-                (month, month + "-01", _next_month(month) + "-01", scope, scope),
+                "AND (? = 'all' OR scope = ?) "
+                "AND (?='all' OR (?='credit' AND invoice_month IS NOT NULL) OR (?='account' AND invoice_month IS NULL)) "
+                "ORDER BY occurred_on DESC, id DESC",
+                (month, month + "-01", _next_month(month) + "-01", scope, scope, payment_type, payment_type, payment_type),
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -710,8 +719,9 @@ class FinanceStore:
                     (source, scope, starts_on, ends_on),
                 )
 
-    def analytics(self, end_month: str, scope: str = "personal", months: int = 6) -> dict:
+    def analytics(self, end_month: str, scope: str = "personal", months: int = 6, payment_type: str = "all") -> dict:
         """Return chart data with explicit cash statement coverage."""
+        payment_type = validate_payment_type(payment_type)
         end_month = validate_month(end_month)
         scope = validate_scope(scope, allow_all=True)
         if isinstance(months, bool) or not isinstance(months, int) or not 1 <= months <= 24:
@@ -745,8 +755,9 @@ class FinanceStore:
                   AND COALESCE(invoice_month, substr(occurred_on, 1, 7)) >= ?
                   AND COALESCE(invoice_month, substr(occurred_on, 1, 7)) <= ?
                   AND (? = 'all' OR scope = ?)
+                  AND (?='all' OR (?='credit' AND invoice_month IS NOT NULL) OR (?='account' AND invoice_month IS NULL))
                 GROUP BY month, category ORDER BY month, amount_cents DESC, category
-            """, (month_list[0], end_month, scope, scope))]
+            """, (month_list[0], end_month, scope, scope, payment_type, payment_type, payment_type))]
         invoices_by_month: dict[str, dict] = {}
         for invoice in self.invoice_history(scope):
             month = invoice["invoice_month"]
@@ -784,7 +795,7 @@ class FinanceStore:
         for row in category_rows:
             spending_by_month[row["month"]].append(
                 {"category": row["category"], "amount_cents": row["amount_cents"]})
-        return {"scope": scope, "end_month": end_month, "months": month_list,
+        return {"scope": scope, "payment_type": payment_type, "end_month": end_month, "months": month_list,
                 "cashflow": cashflow, "invoices": invoices,
                 "category_spending": [
                     {"month": month, "total_cents": sum(item["amount_cents"] for item in spending_by_month[month]),
@@ -1224,22 +1235,36 @@ class FinanceStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def purchase_categories(self, scope: str = "personal", month: str | None = None) -> dict:
-        """Sum purchases for one month or the full history without bill payments."""
+    def purchase_categories(self, scope: str = "personal", month: str | None = None,
+                            payment_type: str = "all") -> dict:
+        """Gross consumption by invoice month/account date, excluding settlements."""
         scope = validate_scope(scope, allow_all=True)
+        payment_type = validate_payment_type(payment_type)
         if month is not None:
             month = validate_month(month)
         with self._connect() as connection:
             rows = connection.execute("""
-                SELECT category, SUM(amount_cents) AS amount_cents
+                SELECT category, CASE WHEN invoice_month IS NULL THEN 'account' ELSE 'credit' END AS payment_type,
+                       SUM(amount_cents) AS amount_cents, COUNT(*) AS count
                 FROM transactions
                 WHERE kind = 'expense' AND excluded = 0 AND category != 'Pagamento de fatura'
                   AND (? = 'all' OR scope = ?)
                   AND (? IS NULL OR COALESCE(invoice_month, substr(occurred_on, 1, 7)) = ?)
-                GROUP BY category ORDER BY amount_cents DESC, category
+                GROUP BY category, payment_type
             """, (scope, scope, month, month)).fetchall()
-        categories = [dict(row) for row in rows]
-        return {"scope": scope, "month": month,
+        breakdown = {key:{'total_cents':0,'uncategorized_cents':0,'count':0} for key in ('account','credit')}
+        totals = {}
+        for row in rows:
+            origin = breakdown[row['payment_type']]
+            origin['total_cents'] += row['amount_cents']
+            origin['count'] += row['count']
+            if row['category'] == 'Importado':
+                origin['uncategorized_cents'] += row['amount_cents']
+            if payment_type == 'all' or payment_type == row['payment_type']:
+                totals[row['category']] = totals.get(row['category'],0) + row['amount_cents']
+        categories = [{'category':name,'amount_cents':amount} for name,amount in
+                      sorted(totals.items(),key=lambda pair:(-pair[1],pair[0]))]
+        return {"scope": scope, "month": month, "payment_type": payment_type, "breakdown": breakdown,
                 "purchase_total_cents": sum(row["amount_cents"] for row in categories),
                 "purchase_categories": categories}
 
@@ -1278,6 +1303,7 @@ class FinanceStore:
             "cash_balance_snapshots": snapshots,
             "card_payment_cents": card_payments,
             "card_purchases_cents": card_purchases,
+            "spending_breakdown": self.purchase_categories(scope, month)['breakdown'],
             "purchase_total_cents": purchase_total,
             "purchase_categories": [
                 {"category": name, "amount_cents": amount}

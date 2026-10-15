@@ -349,3 +349,19 @@ footer { color: #a2aabd; font-size: 11px; padding: 40px 0 8px; }
 @media(prefers-reduced-motion:reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }
+
+/* Consumption by origin: separate purchase totals from cash settlement metrics. */
+.spending-panel { margin: 0 0 24px; }
+.spending-breakdown { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.spending-origin { display: flex; flex-direction: column; gap: 10px; padding: 20px; text-align: left; border: 1px solid #dedff5; border-radius: 15px; background: #f3f1ff; color: #423b85; font: inherit; cursor: pointer; min-width: 0; overflow-wrap: anywhere; }
+.spending-origin.account { background: #eafaf5; border-color: #c6eadc; color: #176c55; }
+.spending-origin span { font-size: 13px; font-weight: 650; }
+.spending-origin strong { font-size: clamp(20px, 2.5vw, 28px); font-variant-numeric: tabular-nums; }
+.spending-origin small { font-size: 12px; line-height: 1.5; }
+.spending-origin[aria-pressed="true"] { outline: 2px solid currentColor; outline-offset: 2px; }
+.spending-origin:focus-visible { outline: 3px solid #8375e9; outline-offset: 3px; }
+@media(max-width: 600px) {
+  .spending-panel .panel-header { flex-wrap: wrap; gap: 14px; }
+  .spending-panel .month-picker { width: 100%; }
+  .spending-origin { padding: 14px; }
+}

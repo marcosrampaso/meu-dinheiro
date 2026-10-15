@@ -247,14 +247,14 @@ class FinanceHandler(BaseHTTPRequestHandler):
             return
         if path == API_PREFIX + "/purchase-categories":
             self._json(HTTPStatus.OK, self.server.store.purchase_categories(
-                self._scope(query), query.get("month", [None])[0]))
+                self._scope(query), query.get("month", [None])[0], query.get("payment_type", ["all"])[0]))
             return
         if path == API_PREFIX + "/analytics":
             raw_months = query.get("months", ["6"])[0]
             if not raw_months.isdecimal():
                 raise ValidationError("Escolha de 1 a 24 meses para os gráficos.")
             self._json(HTTPStatus.OK, self.server.store.analytics(
-                self._month(query), self._scope(query), int(raw_months)))
+                self._month(query), self._scope(query), int(raw_months), query.get("payment_type", ["all"])[0]))
             return
         if path == API_PREFIX + "/data-health":
             self._json(HTTPStatus.OK, data_health(self.server.store, self._month(query), self._scope(query)))
@@ -331,7 +331,7 @@ class FinanceHandler(BaseHTTPRequestHandler):
                                        "chatgpt_connected": self.server.auth.status()["connected"]})
             return
         if path == API_PREFIX + "/transactions":
-            self._json(HTTPStatus.OK, {"items": self.server.store.list_month(self._month(query), self._scope(query))})
+            self._json(HTTPStatus.OK, {"items": self.server.store.list_month(self._month(query), self._scope(query), query.get("payment_type", ["all"])[0])})
             return
         if path == API_PREFIX + "/invoices":
             self._json(HTTPStatus.OK, {"items": self.server.store.invoice_history(self._scope(query))})

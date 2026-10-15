@@ -124,6 +124,14 @@ Na aba **Notícias**, clique em **Atualizar pesquisa** para buscar informações
 
 Se a fatura atual ainda não puder ser exportada, use **Adicionar compra à fatura**. Escolha banco, área e o mesmo nome de cartão usado nas faturas anteriores; informe data, valor, descrição, categoria e mês da fatura. A compra aparece no histórico e nos gráficos do cartão, mas não altera o saldo da conta corrente. Se importar o PDF dessa fatura depois, confira e exclua lançamentos repetidos.
 
+## Gastos por origem
+
+Em Finanças, **Cartão e conta, separados** mostra dois totais brutos do mês: compras do cartão no mês da fatura e gastos da conta corrente (débito/PIX) na data do lançamento. Compras sem categoria entram nesses totais; pagamentos de fatura, aplicações e transferências marcadas ficam fora do consumo. Estornos e receitas são consultados nos lançamentos, não abatidos automaticamente desses totais brutos.
+
+Use **Mostrar gastos de** ou clique em um dos cartões para filtrar os gráficos por categoria, as compras por categoria, os lançamentos e o filtro inicial das sugestões. A escolha fica salva neste navegador. O período das categorias pode ser o mês selecionado ou todo o histórico. A lista de lançamentos inclui também entradas e movimentações da origem escolhida. Os painéis de saldo, receita, fluxo de caixa, faturas, orçamento e resumo semanal mantêm o escopo descrito em cada seção.
+
+Gastos recebidos como **Importado** aparecem como **Sem categoria**. Para classificá-los, escolha a origem e use **Aprendizado local** ou **Local + ChatGPT**, revise e aplique. Também é possível corrigir manualmente na aba **Classificar**, que tem seu próprio filtro de conta/cartão. As aprovações alimentam os exemplos locais sem alterar valores.
+
 ## Categorias com aprendizado local e IA
 
 Clique em **Continuar com ChatGPT** na aba **Configurações**. O programa abre o login no navegador padrão; entre na sua conta e autorize o uso do plano. O retorno acontece em `http://127.0.0.1:<porta>/auth/callback`, no próprio servidor local, e volta para Configurações. Para usar o modo híbrido, depois, na aba Finanças, escolha **Local + ChatGPT**, o período e a forma de pagamento (**Conta / débito**, **Cartão de crédito** ou ambos), gere sugestões para até 40 compras, revise e clique em **Aplicar categorias**. A visão Pessoal/PJ/Tudo vale também para as sugestões. Se houver débitos PJ sem categoria enquanto a visão Pessoal estiver aberta, a tela oferece um atalho para a PJ. O botão **Gerenciar uso** abre as configurações do ChatGPT. O uso compartilha os limites do seu plano; não usa a cobrança da API key.
@@ -198,7 +206,7 @@ Base: `http://127.0.0.1:8765/api/v1`. Nas escritas, envie `Content-Type: applica
 | POST | `/investments/pluggy/preview` | Consulta ativos da XP pela Pluggy para conferência, sem alterar a carteira |
 | POST | `/investments/pluggy/sync-preview` | Prévia de posição XP e substituição das movimentações; retorna token temporário |
 | POST | `/investments/pluggy/import` | Aplica a posição e substitui o período XP a partir do token revisado |
-| POST | `/accounts/pluggy/inter/preview` | Prévia de conta, cartão e datas que substituirão os registros do Inter pessoal |
+| POST | `/accounts/pluggy/inter/preview` | Prévia de conta, cartão e datas do Inter; `full_history: true` consulta todo o histórico disponível da conta |
 | POST | `/accounts/pluggy/inter/import` | Substitui o período revisado pelo token temporário, preservando categorias reconhecidas |
 | GET | `/pluggy/webhooks/status` | Estado do receptor e últimos avisos, sem devolver chaves |
 | POST | `/pluggy/webhooks/setup` | Gera duas chaves locais e os itemIds para configurar a Railway |

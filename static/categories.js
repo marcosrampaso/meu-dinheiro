@@ -1,6 +1,7 @@
 const categoryRange = document.querySelector("#categorization-range");
 const categoryEngine = document.querySelector("#categorization-engine");
 const categoryType = document.querySelector("#categorization-type");
+categoryType.value = spendingTypeInput.value;
 const categoryStatus = document.querySelector("#categorization-status");
 const categoryScopeHint = document.querySelector("#categorization-scope-hint");
 const categoryPreview = document.querySelector("#categorization-preview");
@@ -255,3 +256,8 @@ document.addEventListener("finance-data-change", () => { clearCategoryPreview();
 document.addEventListener("finance-view-resume", () => { if (!previewContext) refreshCategoryStatus(); });
 document.addEventListener("settings-view-resume", refreshCategoryStatus);
 refreshCategoryStatus();
+
+document.addEventListener("spending-type-change", () => {
+  categoryType.value = spendingTypeInput.value;
+  clearCategoryPreview(); refreshCategoryStatus();
+});

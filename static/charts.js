@@ -256,9 +256,10 @@ async function refreshCharts() {
   const selectedMonth = monthInput.value;
   const selectedScope = scopeInput.value;
   const selectedMonths = document.querySelector("#chart-months").value;
+  const selectedPaymentType = spendingTypeInput.value;
   try {
-    const data = await request(`/analytics?month=${encodeURIComponent(selectedMonth)}&scope=${encodeURIComponent(selectedScope)}&months=${selectedMonths}`);
-    if (requestId !== chartRequestId || selectedMonth !== monthInput.value || selectedScope !== scopeInput.value || selectedMonths !== document.querySelector("#chart-months").value) return;
+    const data = await request(`/analytics?month=${encodeURIComponent(selectedMonth)}&scope=${encodeURIComponent(selectedScope)}&months=${selectedMonths}&payment_type=${selectedPaymentType}`);
+    if (requestId !== chartRequestId || selectedMonth !== monthInput.value || selectedScope !== scopeInput.value || selectedMonths !== document.querySelector("#chart-months").value || selectedPaymentType !== spendingTypeInput.value) return;
     drawBars(document.querySelector("#cashflow-chart"), data.cashflow, "Entradas e saídas por mês", [
       { key: "income_cents", label: "Entradas", color: chartColors.income },
       { key: "expense_cents", label: "Saídas", color: chartColors.expense },
@@ -271,6 +272,7 @@ async function refreshCharts() {
     drawBars(document.querySelector("#invoice-chart"), data.invoices, "Faturas por mês", [
       { key: "total_cents", label: "Fatura", color: chartColors.invoice },
     ], "invoice-insight");
+    document.querySelector("#category-month-chart-title").textContent = `Gastos mensais por categoria · ${spendingTypeInput.selectedOptions[0].textContent}`;
     drawCategorySpending(data.category_spending);
     document.querySelector("#invoice-chart-note").textContent = "O mês corresponde à fatura; as compras não são somadas novamente às saídas da conta.";
     drawBalances(document.querySelector("#balance-chart"), data.balance_series);

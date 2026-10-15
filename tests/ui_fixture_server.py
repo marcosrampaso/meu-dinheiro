@@ -114,6 +114,25 @@ def main():
             for amount,category in [('28','Tabaco'),('35','Tabaco'),('150','Transporte'),('180','Transporte'),('32','Importado'),('160','Importado'),('80','Importado')]:
                 store.add({'kind':'expense','description':'Autoposto exemplo','amount':amount,
                     'category':category,'occurred_on':date.today().isoformat(),'scope':'personal'})
+        if "--origins" in sys.argv:
+            with store._connect() as c:
+                c.execute('DELETE FROM transactions')
+                c.execute('DELETE FROM category_examples')
+            today = date.today().isoformat()
+            for description,amount,category,kind,excluded,scope in [
+                ('Mercado na conta','25','Mercado','expense',False,'personal'),
+                ('Débito a classificar','15','Importado','expense',False,'personal'),
+                ('Pagamento da fatura','80','Pagamento de fatura','expense',True,'personal'),
+                ('Aplicação exemplo','3','Movimento de investimento','expense',True,'personal'),
+                ('Receita exemplo','1000','Receita','income',False,'personal'),
+                ('Conta da empresa','10','Mercado','expense',False,'business')]:
+                store.add({'description':description,'amount':amount,'category':category,'kind':kind,
+                    'excluded':excluded,'scope':scope,'occurred_on':today})
+            previous = _months(date.today(),1)[0]
+            for description,amount,category in [('Mercado no cartão','80','Mercado'),('Transporte no cartão','20','Transporte')]:
+                store.add_card_purchase({'bank':'inter','account':'cartão exemplo','scope':'personal',
+                    'invoice_month':today[:7],'occurred_on':previous+'-10','description':description,
+                    'amount':amount,'category':category})
         with FixtureServer(("127.0.0.1", 0), IdleFixtureHandler if "--idle-auth" in sys.argv else FinanceHandler) as server:
             server.store = store
             server.local_auth = (IdleFixtureAuth(base / "unused.swift", base) if "--idle-auth" in sys.argv else

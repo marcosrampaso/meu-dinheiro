@@ -87,6 +87,15 @@
         <article class="metric"><span>Fatura paga no mês</span><strong id="card-payment">R$ 0,00</strong><small id="card-purchases">Compras no cartão: R$ 0,00</small></article>
       </section>
 
+      <section class="panel spending-panel" aria-labelledby="spending-title">
+        <div class="panel-header"><div><p class="eyebrow">GASTOS POR ORIGEM</p><h2 id="spending-title">Cartão e conta, separados</h2><p>Totais brutos do mês, incluindo compras ainda sem categoria.</p></div><label class="month-picker">Mostrar gastos de<select id="spending-type" aria-label="Origem dos gastos"><option value="all">Cartão e conta corrente</option><option value="credit">Cartão de crédito</option><option value="account">Conta corrente / débito / PIX</option></select></label></div>
+        <div class="spending-breakdown">
+          <button class="spending-origin credit" type="button" data-spending-type="credit" aria-pressed="false"><span>Cartão de crédito</span><strong id="spending-credit-total">—</strong><small id="spending-credit-pending">Compras pelo mês da fatura</small></button>
+          <button class="spending-origin account" type="button" data-spending-type="account" aria-pressed="false"><span>Conta corrente · débito e PIX</span><strong id="spending-account-total">—</strong><small id="spending-account-pending">Gastos pela data do lançamento</small></button>
+        </div>
+        <p id="spending-filter-note" class="chart-note">Filtro para gráficos por categoria, compras por categoria, lançamentos e sugestões. Pagamentos de fatura, aplicações e transferências ficam fora destes totais de gastos.</p>
+      </section>
+
       <section class="panel health-panel" aria-labelledby="health-title">
         <div class="panel-header"><div><p class="eyebrow">CONFIANÇA DOS DADOS</p><h2 id="health-title">O que falta neste mês?</h2><p>Conferência dos extratos e faturas conhecidos pelo aplicativo.</p></div><span id="health-badge" class="health-badge">Conferindo...</span></div>
         <div id="health-items" class="health-items" aria-live="polite"></div>
@@ -149,7 +158,7 @@
             </div>
             <label>Categoria<input name="category" maxlength="60" list="categories" placeholder="Ex.: Alimentação" required></label>
             <label>Área<select name="scope"><option value="personal">Pessoal</option><option value="business">PJ</option></select></label>
-            <datalist id="categories"><option value="Alimentação"><option value="Mercado"><option value="Moradia"><option value="Transporte"><option value="Saúde"><option value="Educação"><option value="Lazer"><option value="Compras"><option value="Assinaturas"><option value="Viagens"><option value="Cuidados pessoais"><option value="Impostos e taxas"><option value="Serviços"><option value="Outros"><option value="Salário"></datalist>
+            <datalist id="categories"><option value="Alimentação"><option value="Mercado"><option value="Moradia"><option value="Transporte"><option value="Saúde"><option value="Educação"><option value="Lazer"><option value="Compras"><option value="Assinaturas"><option value="Viagens"><option value="Cuidados pessoais"><option value="Impostos e taxas"><option value="Serviços"><option value="Tabaco"><option value="Outros"><option value="Salário"></datalist>
             <label class="checkbox-line"><input name="excluded" type="checkbox"><span>Não incluir no resumo (transferência ou pagamento de fatura)</span></label>
             <div class="form-actions"><button id="save-button" class="primary-button" type="submit">Salvar lançamento</button><button id="cancel-button" class="text-button" type="button" hidden>Cancelar edição</button></div>
           </form>
@@ -220,6 +229,7 @@
       <section class="panel transactions-panel" aria-labelledby="transactions-title">
         <div class="panel-header"><div><p class="eyebrow">HISTÓRICO</p><h2 id="transactions-title">Lançamentos do mês</h2></div><span id="count" class="count">0 lançamentos</span></div>
         <label class="transaction-category-filter">Filtrar por categoria<select id="transaction-category-filter"><option value="">Todas as categorias</option></select></label>
+        <p id="transaction-origin-note" class="chart-note">Cartão pelo mês da fatura e conta pela data do lançamento.</p>
         <p class="transaction-help">Confirmou no comprovante que um débito foi para a XP ou outra corretora? Use “É investimento” no lançamento para tirá-lo dos gastos.</p>
         <div id="transactions-list" class="transactions-list"></div>
       </section>

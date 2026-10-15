@@ -2,6 +2,7 @@ const API = "/api/v1";
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const monthInput = document.querySelector("#month");
 const scopeInput = document.querySelector("#scope-view");
+const spendingTypeInput = document.querySelector("#spending-type");
 const purchasePeriodInput = document.querySelector("#purchase-period");
 const includeUncategorized = document.querySelector("#include-uncategorized");
 const form = document.querySelector("#transaction-form");
@@ -68,6 +69,14 @@ function setSummary(summary) {
   document.querySelector("#income").textContent = money.format(summary.income_cents / 100);
   document.querySelector("#expenses").textContent = money.format(summary.expense_cents / 100);
   document.querySelector("#card-payment").textContent = money.format(summary.card_payment_cents / 100);
+  for (const type of ["credit", "account"]) {
+    const detail = summary.spending_breakdown[type];
+    document.querySelector(`#spending-${type}-total`).textContent = money.format(detail.total_cents / 100);
+    document.querySelector(`#spending-${type}-pending`).textContent = `${detail.count} compras · ${money.format(detail.uncategorized_cents / 100)} sem categoria`;
+  }
+  for (const node of document.querySelectorAll("[data-spending-type]")) {
+    node.setAttribute("aria-pressed", String(node.dataset.spendingType === spendingTypeInput.value));
+  }
   const purchasesText = `Compras registradas: ${money.format(summary.card_purchases_cents / 100)}`;
   const latestInvoice = summary.latest_invoice_month;
   document.querySelector("#card-purchases").textContent = latestInvoice
@@ -81,6 +90,8 @@ function renderPurchaseCategories(data) {
   const entries = visibleCategories(data.purchase_categories);
   const shownTotal = entries.reduce((sum, item) => sum + item.amount_cents, 0);
   const unknown = data.purchase_categories.find(entry => entry.category === "Importado")?.amount_cents || 0;
+  const origin = spendingTypeInput.value === "credit" ? "Cartão de crédito" : spendingTypeInput.value === "account" ? "Conta corrente" : "Compras";
+  document.querySelector("#category-title").textContent = `${origin} por categoria`;
   document.querySelector("#purchase-total").textContent = money.format(shownTotal / 100);
   document.querySelector("#category-coverage").textContent = `Gráfico: ${money.format(shownTotal / 100)}${includeUncategorized.checked ? " em todas as compras" : " em compras categorizadas"}. Total de compras detalhadas: ${money.format(data.purchase_total_cents / 100)} · ${money.format(unknown / 100)} ainda sem categoria.`;
   if (entries.length === 0) {
@@ -187,15 +198,17 @@ async function refresh({ notify = true } = {}) {
   try {
     const month = encodeURIComponent(monthInput.value);
     const scope = encodeURIComponent(scopeInput.value);
+    const paymentType = spendingTypeInput.value;
     const categoryMonth = purchasePeriodInput.value === "month" ? `&month=${month}` : "";
     const [summary, transactions, categories] = await Promise.all([
       request(`/summary?month=${month}&scope=${scope}`),
-      request(`/transactions?month=${month}&scope=${scope}`),
-      request(`/purchase-categories?scope=${scope}${categoryMonth}`),
+      request(`/transactions?month=${month}&scope=${scope}&payment_type=${paymentType}`),
+      request(`/purchase-categories?scope=${scope}${categoryMonth}&payment_type=${paymentType}`),
     ]);
     if (month !== encodeURIComponent(monthInput.value) || scope !== encodeURIComponent(scopeInput.value)
-        || categoryMonth !== (purchasePeriodInput.value === "month" ? `&month=${month}` : "")) return;
+        || paymentType !== spendingTypeInput.value || categoryMonth !== (purchasePeriodInput.value === "month" ? `&month=${month}` : "")) return;
     setSummary(summary);
+    document.querySelector("#transaction-origin-note").textContent = `${spendingTypeInput.selectedOptions[0].textContent}. Cartão pelo mês da fatura; conta pela data do lançamento. A lista também mostra receitas e movimentações da origem selecionada.`;
     renderTransactions(transactions.items);
     renderPurchaseCategories(categories);
     if (notify) document.dispatchEvent(new Event("finance-data-change"));
@@ -298,6 +311,17 @@ form.addEventListener("submit", async (event) => {
 document.querySelector("#cancel-button").addEventListener("click", resetForm);
 monthInput.addEventListener("change", () => { resetForm(); refresh(); });
 scopeInput.addEventListener("change", () => { resetForm(); refresh(); document.dispatchEvent(new Event("finance-scope-change")); });
+spendingTypeInput.addEventListener("change", () => {
+  window.localStorage.setItem("spending-payment-type", spendingTypeInput.value);
+  refresh();
+  document.dispatchEvent(new Event("spending-type-change"));
+});
+for (const button of document.querySelectorAll("[data-spending-type]")) {
+  button.addEventListener("click", () => {
+    spendingTypeInput.value = button.dataset.spendingType;
+    spendingTypeInput.dispatchEvent(new Event("change"));
+  });
+}
 purchasePeriodInput.addEventListener("change", () => {
   window.localStorage.setItem("purchase-period", purchasePeriodInput.value);
   refresh({ notify: false });
@@ -316,6 +340,8 @@ function refreshOnResume() {
 }
 window.addEventListener("focus", refreshOnResume);
 document.addEventListener("visibilitychange", refreshOnResume);
+const savedSpendingType = window.localStorage.getItem("spending-payment-type");
+spendingTypeInput.value = ["credit", "account"].includes(savedSpendingType) ? savedSpendingType : "all";
 monthInput.value = todayLocal().slice(0, 7);
 purchasePeriodInput.value = window.localStorage.getItem("purchase-period") === "all" ? "all" : "month";
 resetForm();
