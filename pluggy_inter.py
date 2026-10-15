@@ -148,9 +148,9 @@ class PluggyInter:
         with self._lock:
             self._pending = None
 
-    def preview(self, http_json=_http_json, *, full_history=False) -> dict:
-        if not isinstance(full_history, bool):
-            raise PluggyError('Escolha se deseja consultar o histórico completo da conta.')
+    def preview(self, http_json=_http_json, *, full_history=False, full_card_history=False) -> dict:
+        if not isinstance(full_history, bool) or not isinstance(full_card_history, bool):
+            raise PluggyError('Escolha se deseja consultar o histórico completo da conta e do cartão.')
         from pluggy_sync import revision
         current_revision = revision(self.store,'Inter')
         config = self.pluggy.load_config()
@@ -177,6 +177,18 @@ class PluggyInter:
         starts_on = live_start(self.store)
         card_starts_on = card_live_start(self.store, starts_on)
         account_starts_on = account_live_start(self.store, starts_on)
+        with self.store._connect() as connection:
+            invoice_sources = {r['invoice_month']:r['provider'] for r in connection.execute(
+                'SELECT invoice_month,provider FROM invoice_coverage WHERE source=? AND scope=?',
+                (CARD_SOURCE,'personal'))}
+        full_card_history = full_card_history or 'pluggy' in invoice_sources.values()
+        protected_invoices = {month for month,provider in invoice_sources.items()
+                              if provider != 'pluggy' and month < starts_on[:7]}
+        card_months = set()
+        card_invoices = []
+        warnings = []
+        if full_card_history and not any(a['type'] == 'CREDIT' for a in relevant):
+            warnings.append('A conexão não retornou cartão de crédito. Confira o compartilhamento do cartão no Inter/Meu Pluggy.')
         periods = []
         skipped = Counter()
         account_summaries = []
@@ -200,7 +212,7 @@ class PluggyInter:
                 source_start = min(dates)
                 account_starts_on = min(account_starts_on, source_start)
             updated_on = _iso_date(account.get("updatedAt") or datetime.now(timezone.utc).isoformat(), "a conta")
-            if dates:
+            if dates and not (is_card and full_card_history):
                 from pluggy_sync import covered_start
                 period_start = min(dates) if full_history and not is_card else max(
                     source_start, covered_start(self.store, source, "personal", min(dates)))
@@ -225,7 +237,7 @@ class PluggyInter:
                 if not description:
                     raise PluggyError("Uma transação veio sem descrição.")
                 occurred_on = _iso_date(row.get("date"), "uma transação")
-                if occurred_on < source_start:
+                if occurred_on < source_start and not (is_card and full_card_history):
                     skipped["historical"] += 1
                     continue
                 if occurred_on > date.today().isoformat():
@@ -253,9 +265,14 @@ class PluggyInter:
                         invoice_month = forecast
                     if not invoice_month:
                         raise PluggyError("Um lançamento do cartão veio sem mês de fatura. Nada será substituído até conferir esse período.")
-                    if invoice_month < starts_on[:7]:
+                    if invoice_month < starts_on[:7] and not full_card_history:
                         skipped["historical"] += 1
                         continue
+                    if full_card_history and invoice_month in protected_invoices:
+                        skipped['existing_invoice'] += 1
+                        continue
+                    if full_card_history:
+                        card_months.add(invoice_month)
                     category, excluded = ("Estorno", False) if kind == "income" else ("Importado", False)
                 else:
                     invoice_month = None
@@ -270,6 +287,32 @@ class PluggyInter:
                                  "excluded": excluded, "source": source, "import_key": import_key,
                                  "invoice_month": invoice_month, "scope": "personal",
                                  "pending": int(row.get("status") == "PENDING")})
+            if is_card and full_card_history:
+                card_items = [item for item in prepared if item['source'] == CARD_SOURCE]
+                for month in sorted(set(bill_months.values()) | card_months):
+                    entries = [item for item in card_items if item['invoice_month'] == month]
+                    month_bills = [bill for bill in bills if bill_months.get(bill.get('id')) == month]
+                    amounts = [_cents(bill['totalAmount']) for bill in month_bills
+                               if bill.get('totalAmount') is not None and bill.get('totalAmountCurrencyCode','BRL') == 'BRL']
+                    reported = sum(amounts) if amounts and len(amounts) == len(month_bills) else None
+                    preserved = month in protected_invoices
+                    if not entries and reported == 0 and not preserved:
+                        card_months.add(month)
+                    if not entries and not preserved and reported != 0:
+                        warnings.append(f'Fatura {month}: sem compras detalhadas recebidas; dados locais desse mês foram mantidos.')
+                    line_total = sum(item['amount_cents'] * (1 if item['kind'] == 'expense' else -1) for item in entries)
+                    if entries and reported is not None and abs(line_total-reported) > 1:
+                        warnings.append(f'Fatura {month}: a soma dos lançamentos difere do total informado pelo banco. Confira possíveis parcelas ou encargos ausentes.')
+                    card_invoices.append({'month':month,'count':len(entries),'preserved':preserved,
+                        'reported_total_cents':reported,'line_total_cents':None if preserved else line_total})
+                if card_months:
+                    # Replace only these invoices. Original purchase dates can be months older
+                    # than the installment's bill and must not define its replacement interval.
+                    periods.append({'source':CARD_SOURCE,'scope':'personal','basis':'invoice',
+                        'invoice_months':sorted(card_months),'starts_on':min(card_months)+'-01',
+                        'ends_on':max(card_months)+'-01'})
+                if not card_items:
+                    warnings.append('Nenhuma compra nova de cartão foi recebida para importar. Faturas locais anteriores foram preservadas.')
         if len(prepared) > MAX_TRANSACTIONS:
             raise PluggyError("Há mais de 5.000 novos lançamentos. Importe um período menor antes de sincronizar.")
         token = secrets.token_urlsafe(24)
@@ -280,6 +323,8 @@ class PluggyInter:
             self._pending["card_starts_on"] = card_starts_on
             self._pending['account_history_start'] = account_starts_on
             self._pending['full_history'] = full_history
+            self._pending['full_card_history'] = full_card_history
+            self._pending['card_months'] = sorted(card_months)
         from pluggy_sync import replacement_counts
         replacements = replacement_counts(self.store, periods)
         return {"preview_token": token, "accounts": account_summaries,
@@ -289,13 +334,14 @@ class PluggyInter:
                 "card_live_starts_on": card_starts_on,
                 "full_history": full_history,
                 "account_history_start": account_starts_on,
+                "full_card_history": full_card_history, "card_invoices":card_invoices, "warnings":warnings,
                 "checked_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 "bank_balance": bank_balance,
                 "new_items": [{key: row[key] for key in ("kind", "description", "amount_cents",
                                                       "occurred_on", "source", "invoice_month",
                                                       "category", "excluded", "pending")}
                               for row in prepared],
-                "note": f"Conta: operações disponíveis desde {account_starts_on}. Cartão: compras desde {card_starts_on}, após o histórico das faturas importadas. Pagamentos de cartão não são compras. Categorias reconhecidas são preservadas; compras pendentes são provisórias."}
+                "note": f"Conta: operações disponíveis desde {account_starts_on}. Cartão: {'histórico disponível por mês da fatura, com faturas locais anteriores preservadas' if full_card_history else f'compras desde {card_starts_on}, após o histórico das faturas importadas'}. Pagamentos de cartão não são compras. Categorias reconhecidas são preservadas; compras pendentes são provisórias."}
 
     def import_preview(self, token: object) -> dict:
         with self._lock:

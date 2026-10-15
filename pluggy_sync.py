@@ -50,10 +50,17 @@ def backup(store):
 def _old_inter(connection, periods):
     rows = {}
     for period in periods:
-        for row in connection.execute(
-            "SELECT * FROM transactions WHERE source=? AND scope=? AND occurred_on BETWEEN ? AND ?",
-            (period["source"], period["scope"], period["starts_on"], period["ends_on"]),
-        ):
+        if period.get('basis') == 'invoice':
+            months = period['invoice_months']
+            placeholders = ','.join('?' for _ in months)
+            records = connection.execute(
+                f"SELECT * FROM transactions WHERE source=? AND scope=? AND invoice_month IN ({placeholders})",
+                (period['source'],period['scope'],*months))
+        else:
+            records = connection.execute(
+                "SELECT * FROM transactions WHERE source=? AND scope=? AND occurred_on BETWEEN ? AND ?",
+                (period["source"], period["scope"], period["starts_on"], period["ends_on"]))
+        for row in records:
             rows[row["id"]] = dict(row)
     return list(rows.values())
 
@@ -140,7 +147,7 @@ def restore_inter_history(store, historical_items, starts_on, statement_periods=
                            (ACCOUNT_SOURCE, starts_on, date.today().isoformat()))
         for item in historical_items:
             if item['invoice_month']:
-                connection.execute("INSERT OR IGNORE INTO invoice_coverage VALUES (?,?,?)",
+                connection.execute("INSERT OR IGNORE INTO invoice_coverage(source,scope,invoice_month) VALUES (?,?,?)",
                                    (item['source'], item['scope'], item['invoice_month']))
     store.reconcile_internal_transfers()
     return {"restored": len(restored), "removed": len(removed), "backup": saved,
@@ -170,7 +177,10 @@ def apply_inter(store, pending):
         remapped = {}
         for index, original in enumerate(pending["items"]):
             item = dict(original)
-            matches = _matches(item, old_by_source[item["source"]])
+            candidates = old_by_source[item['source']]
+            if pending.get('full_card_history') and item['invoice_month']:
+                candidates = [row for row in candidates if row['invoice_month'] == item['invoice_month'] or row['import_key'] == item['import_key']]
+            matches = _matches(item, candidates)
             classified = {(r["category"], r["excluded"]) for r in matches if r["category"] != "Importado"}
             if item["category"] == "Importado" and len(classified) == 1:
                 item["category"], item["excluded"] = classified.pop()
@@ -207,7 +217,13 @@ def apply_inter(store, pending):
         for row in old:
             connection.execute("UPDATE investment_entries SET matched_transaction_id=? WHERE matched_transaction_id=?",
                                (remapped.get(row["id"]), row["id"]))
+        for month in pending.get('card_months', []):
+            connection.execute("""INSERT INTO invoice_coverage(source,scope,invoice_month,provider)
+                VALUES (?,'personal',?,'pluggy') ON CONFLICT(source,scope,invoice_month)
+                DO UPDATE SET provider='pluggy'""", ('Inter · cartão principal',month))
         for period in pending["periods"]:
+            if period.get('basis') == 'invoice':
+                continue
             connection.execute("DELETE FROM authoritative_periods WHERE source=? AND scope=?",
                                (period["source"], period["scope"]))
             connection.execute("INSERT OR REPLACE INTO authoritative_periods(source,scope,starts_on,ends_on) VALUES (?,?,?,?)",
@@ -222,7 +238,10 @@ def apply_inter(store, pending):
                 (balance["source"], "personal", balance["as_of"], balance["amount_cents"]))
     store.reconcile_internal_transfers()
     return {"imported": len(pending["items"]), "replaced": len(old), "skipped": 0,
-            "categories_preserved": preserved, "balance_updated": bool(pending["balance"]), "backup": saved}
+            "categories_preserved": preserved, "balance_updated": bool(pending["balance"]), "backup": saved,
+            "card_imported": sum(item['invoice_month'] is not None for item in pending['items']),
+            "account_imported": sum(item['invoice_month'] is None for item in pending['items']),
+            "card_invoice_months": pending.get('card_months', [])}
 
 
 def apply_xp(store, pending):

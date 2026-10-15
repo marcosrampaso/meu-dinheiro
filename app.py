@@ -180,6 +180,10 @@ class FinanceHandler(BaseHTTPRequestHandler):
     def _check_card_import_overlap(self, data: dict, items: list[dict]) -> None:
         with self.server.store._connect() as connection:
             for item in items:
+                if item.get('invoice_month') and connection.execute(
+                    "SELECT 1 FROM invoice_coverage WHERE source=? AND scope=? AND invoice_month=? AND provider='pluggy'",
+                    (item['source'],item.get('scope','personal'),item['invoice_month'])).fetchone():
+                    raise ValidationError('Essa fatura já é atualizada pela Pluggy. Sincronize nas Configurações para evitar duplicação.')
                 if connection.execute("""SELECT 1 FROM authoritative_periods
                     WHERE source=? AND scope=? AND ? BETWEEN starts_on AND ends_on LIMIT 1""",
                     (item["source"], item.get("scope", "personal"), item["occurred_on"])).fetchone():
@@ -486,7 +490,8 @@ class FinanceHandler(BaseHTTPRequestHandler):
             return
         if path == API_PREFIX + "/accounts/pluggy/inter/preview":
             data = self._read_json()
-            self._json(HTTPStatus.OK, self.server.pluggy_inter.preview(full_history=data.get('full_history', False)))
+            self._json(HTTPStatus.OK, self.server.pluggy_inter.preview(full_history=data.get('full_history', False),
+                full_card_history=data.get('full_card_history', False)))
             return
         if path == API_PREFIX + "/accounts/pluggy/inter/import":
             self._json(HTTPStatus.CREATED, self.server.pluggy_inter.import_preview(

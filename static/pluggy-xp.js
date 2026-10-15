@@ -3,6 +3,7 @@ const pluggyPreviewButton = document.querySelector("#pluggy-xp-preview-button");
 const pluggyXpImportButton = document.querySelector("#pluggy-xp-import-button");
 const pluggyRemoveButton = document.querySelector("#pluggy-xp-remove");
 const interPreviewButton = document.querySelector("#pluggy-inter-preview-button");
+const interFullCardHistory = document.querySelector("#pluggy-inter-full-card-history");
 const interFullHistory = document.querySelector("#pluggy-inter-full-history");
 const interImportButton = document.querySelector("#pluggy-inter-import-button");
 let interPreviewToken = null;
@@ -89,7 +90,17 @@ function renderInterPreview(data) {
       `${account.type === "card" ? "Cartão" : "Conta"} · ${account.received} transações recebidas · destino: ${account.source}`));
   }
   for (const period of data.periods) {
-    target.append(pluggyRow(period.source, `Substituir de ${formatDate(period.starts_on)} a ${formatDate(period.ends_on)}`));
+    target.append(pluggyRow(period.source, period.basis === "invoice"
+      ? `Faturas a atualizar: ${period.invoice_months.map(month => month.split("-").reverse().join("/")).join(", ")}`
+      : `Substituir de ${formatDate(period.starts_on)} a ${formatDate(period.ends_on)}`));
+  }
+  for (const invoice of data.card_invoices || []) {
+    target.append(pluggyRow(`Fatura ${invoice.month.split("-").reverse().join("/")}`,
+      invoice.preserved ? "Fatura local já conferida: preservada, sem duplicar compras." :
+        `${invoice.count} lançamentos detalhados · soma: ${money.format(invoice.line_total_cents / 100)}${invoice.reported_total_cents === null ? "" : ` · total informado pelo banco: ${money.format(invoice.reported_total_cents / 100)}`}`));
+  }
+  for (const warning of data.warnings || []) {
+    target.append(pluggyRow("Conferir cartão", warning));
   }
   if (data.bank_balance) {
     target.append(pluggyRow("Saldo da conta",
@@ -98,7 +109,7 @@ function renderInterPreview(data) {
   const skipped = Object.entries(data.skipped);
   if (skipped.length) {
     const note = document.createElement("p");
-    const labels = { historical: "anteriores ao início da conexão", pending: "pendentes", zero: "valor zero", card_payment: "pagamentos de fatura",
+    const labels = { historical: "anteriores ao início da conexão", existing_invoice: "cobertos por faturas locais preservadas", pending: "pendentes", zero: "valor zero", card_payment: "pagamentos de fatura",
       no_bill: "sem mês da fatura", existing_statement: "cobertos por extratos/faturas existentes",
       manual_match: "já lançados manualmente", already_imported: "já importados da Pluggy" };
     note.textContent = "Ignorados: " + skipped.map(([reason, count]) => `${count} ${labels[reason] || reason}`).join(" · ");
@@ -184,11 +195,11 @@ interPreviewButton.addEventListener("click", async () => {
   clearInterPreview();
   interStatus("Consultando conta e cartão do Inter na Pluggy...");
   try {
-    const data = await request("/accounts/pluggy/inter/preview", { method: "POST", body: JSON.stringify({ full_history: interFullHistory.checked }) });
+    const data = await request("/accounts/pluggy/inter/preview", { method: "POST", body: JSON.stringify({ full_history: interFullHistory.checked, full_card_history: interFullCardHistory.checked }) });
     renderInterPreview(data);
     interPreviewToken = data.preview_token;
-    interImportButton.disabled = !(data.new_count || data.bank_balance);
-    interStatus(data.full_history ? "Confira o período completo recebido da conta. A importação substitui os registros nesse intervalo e preserva categorias reconhecidas. Faturas antigas permanecem como estão." : "Confira as datas e as compras novas. O histórico fora dos períodos mostrados será preservado.");
+    interImportButton.disabled = !(data.new_count || data.bank_balance || data.replaced_count);
+    interStatus(data.full_card_history ? "Confira o período completo recebido e os meses das faturas do cartão. Faturas locais anteriores já conferidas ficam preservadas; as demais são atualizadas pelos meses listados." : data.full_history ? "Confira o período completo recebido da conta. A importação substitui os registros nesse intervalo e preserva categorias reconhecidas. Faturas antigas permanecem como estão." : "Confira as datas e as compras novas. O histórico fora dos períodos mostrados será preservado.");
   } catch (error) { interStatus(error.message, true); }
   finally { await refreshPluggyStatus(); }
 });
@@ -201,7 +212,7 @@ interImportButton.addEventListener("click", async () => {
       method: "POST", body: JSON.stringify({ preview_token: interPreviewToken }),
     });
     clearInterPreview();
-    interStatus(`${result.imported} lançamentos substituíram ${result.replaced} registros; ${result.categories_preserved} categorias preservadas.${result.balance_updated ? " Saldo atualizado." : ""} Cópia de recuperação salva localmente.`);
+    interStatus(`${result.imported} lançamentos (${result.account_imported} da conta · ${result.card_imported} do cartão) substituíram ${result.replaced} registros; ${result.categories_preserved} categorias preservadas.${result.balance_updated ? " Saldo atualizado." : ""} Cópia de recuperação salva localmente.`);
     document.dispatchEvent(new Event("investment-data-change"));
     await refresh();
   } catch (error) {
@@ -214,3 +225,4 @@ document.addEventListener("settings-view-resume", refreshPluggyStatus);
 refreshPluggyStatus();
 
 interFullHistory.addEventListener("change", clearInterPreview);
+interFullCardHistory.addEventListener("change", clearInterPreview);

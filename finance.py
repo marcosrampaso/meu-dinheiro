@@ -217,6 +217,8 @@ class FinanceStore:
                     PRIMARY KEY (source, scope, invoice_month)
                 )
             """)
+            if 'provider' not in {r[1] for r in connection.execute('PRAGMA table_info(invoice_coverage)')}:
+                connection.execute("ALTER TABLE invoice_coverage ADD COLUMN provider TEXT NOT NULL DEFAULT 'import'")
             if not invoice_coverage_exists:
                 connection.execute("""
                     INSERT OR IGNORE INTO invoice_coverage (source, scope, invoice_month)

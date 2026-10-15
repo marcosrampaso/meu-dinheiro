@@ -198,6 +198,88 @@ class PluggyInterTests(unittest.TestCase):
             self.assertEqual(c.execute("SELECT category FROM transactions WHERE invoice_month='2026-09'").fetchone()[0],'Mercado')
         self.assertEqual(next(r for r in self.store.list_month('2026-09') if r['invoice_month'] is None)['category'],'Tabaco')
 
+    def test_complete_card_history_uses_invoice_month_keeps_pdfs_and_manual_categories(self):
+        august_bill = '77777777-7777-7777-7777-777777777777'
+        pdf = self.store.add_card_purchase({'bank':'inter','account':'cartão principal','invoice_month':'2026-09',
+            'occurred_on':'2026-09-10','description':'Fatura antiga','amount':'70','category':'Mercado'})
+        self.store.save_invoice_coverage('Inter · cartão principal','personal','2026-09')
+        manual = self.store.add_card_purchase({'bank':'inter','account':'cartão principal','invoice_month':'2026-08',
+            'occurred_on':'2026-05-10','description':'Compra parcelada','amount':'30','category':'Lazer'})
+        def history_http(method,path,payload=None,api_key=None):
+            result=self.fake_http(method,path,payload,api_key)
+            if path.startswith('/bills?'):
+                result['results'].append({'id':august_bill,'dueDate':'2026-08-20'})
+            if path.startswith('/v2/transactions?') and CARD_ID in path:
+                result['results'].append(transaction('ddddddd1-dddd-dddd-dddd-dddddddddddd',
+                    '2026-05-10','Compra parcelada',30,'DEBIT',creditCardMetadata={'billId':august_bill}))
+            return result
+        preview=self.inter.preview(history_http,full_card_history=True)
+        period=next(p for p in preview['periods'] if p['source']=='Inter · cartão principal')
+        self.assertEqual(period['basis'],'invoice')
+        self.assertEqual(period['invoice_months'],['2026-08','2026-10'])
+        self.assertEqual(preview['skipped']['existing_invoice'],1)
+        self.assertTrue(any(b['preserved'] for b in preview['card_invoices'] if b['month']=='2026-09'))
+        self.inter.import_preview(preview['preview_token'])
+        self.assertEqual(self.store.get(pdf['id'])['amount_cents'],7000)
+        august=self.store.invoice_items('2026-08','Inter · cartão principal')
+        self.assertEqual(len(august),1)
+        self.assertEqual((august[0]['category'],august[0]['occurred_on']),('Lazer','2026-05-10'))
+        # Future webhook/normal syncs retain the expanded card history policy.
+        repeat=self.inter.preview(history_http)
+        self.assertTrue(repeat['full_card_history'])
+        self.inter.import_preview(repeat['preview_token'])
+        self.assertEqual(len(self.store.invoice_items('2026-08','Inter · cartão principal')),1)
+        self.assertEqual(self.store.get(pdf['id'])['amount_cents'],7000)
+        with self.store._connect() as c:
+            self.assertEqual(c.execute("SELECT provider FROM invoice_coverage WHERE invoice_month='2026-08'").fetchone()[0],'pluggy')
+
+    def test_missing_card_and_missing_bill_details_are_explicit_without_erasing_history(self):
+        def no_card(method,path,payload=None,api_key=None):
+            result=self.fake_http(method,path,payload,api_key)
+            if path.startswith('/accounts?'): result['results']=result['results'][:1]
+            return result
+        missing=self.inter.preview(no_card,full_card_history=True)
+        self.assertTrue(any('não retornou cartão' in text for text in missing['warnings']))
+        initial=self.inter.preview(self.fake_http,full_card_history=True)
+        self.inter.import_preview(initial['preview_token'])
+        def missing_details(method,path,payload=None,api_key=None):
+            result=self.fake_http(method,path,payload,api_key)
+            if path.startswith('/v2/transactions?') and CARD_ID in path:
+                result['results']=[r for r in result['results'] if r['creditCardMetadata'].get('billId') != OLD_BILL_ID]
+            return result
+        incomplete=self.inter.preview(missing_details)
+        self.assertTrue(any('2026-09' in text and 'sem compras' in text for text in incomplete['warnings']))
+        self.inter.import_preview(incomplete['preview_token'])
+        self.assertEqual(len(self.store.invoice_items('2026-09','Inter · cartão principal')),1)
+
+    def test_explicitly_zero_provider_bill_can_remove_old_items_only_in_that_invoice(self):
+        initial=self.inter.preview(self.fake_http,full_card_history=True)
+        self.inter.import_preview(initial['preview_token'])
+        def zero_bill(method,path,payload=None,api_key=None):
+            result=self.fake_http(method,path,payload,api_key)
+            if path.startswith('/bills?'):
+                next(b for b in result['results'] if b['id']==OLD_BILL_ID)['totalAmount']=0
+            if path.startswith('/v2/transactions?') and CARD_ID in path:
+                result['results']=[r for r in result['results'] if r['creditCardMetadata'].get('billId') != OLD_BILL_ID]
+            return result
+        preview=self.inter.preview(zero_bill)
+        period=next(p for p in preview['periods'] if p['source']=='Inter · cartão principal')
+        self.assertIn('2026-09',period['invoice_months'])
+        self.inter.import_preview(preview['preview_token'])
+        self.assertEqual(self.store.invoice_items('2026-09','Inter · cartão principal'),[])
+        self.assertEqual(len(self.store.invoice_items('2026-10','Inter · cartão principal')),2)
+
+    def test_card_history_rejects_invalid_flag_before_network_and_unlinked_rows_before_import(self):
+        with self.assertRaises(PluggyError): self.inter.preview(self.fake_http,full_card_history='yes')
+        def unlinked(method,path,payload=None,api_key=None):
+            result=self.fake_http(method,path,payload,api_key)
+            if path.startswith('/v2/transactions?') and CARD_ID in path:
+                result['results'][1]['creditCardMetadata']={}
+            return result
+        with self.assertRaisesRegex(PluggyError,'sem mês de fatura'):
+            self.inter.preview(unlinked,full_card_history=True)
+        self.assertEqual(self.store.list_month('2026-09'),[])
+
     def test_full_history_flag_validates_before_network_and_preview_does_not_change_policy(self):
         with self.assertRaises(PluggyError): self.inter.preview(self.fake_http, full_history='true')
         preview = self.inter.preview(self.fake_http, full_history=True)

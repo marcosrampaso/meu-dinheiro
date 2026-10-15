@@ -44,7 +44,9 @@ async function main() {
     let requested;
     await page.route('**/api/v1/accounts/pluggy/inter/preview', async route => {
       requested = route.request().postDataJSON();
-      await route.fulfill({ json: { preview_token:'fixture-preview',full_history:requested.full_history,
+      await route.fulfill({ json: { preview_token:'fixture-preview',full_history:requested.full_history,full_card_history:requested.full_card_history,
+        card_invoices:[{month:'2026-08',count:2,preserved:false,reported_total_cents:5000,line_total_cents:5000},
+          {month:'2026-09',count:0,preserved:true,reported_total_cents:5000,line_total_cents:null}],warnings:[],
         new_count:1,replaced_count:0,accounts:[],periods:[{source:'Inter · conta corrente',starts_on:'2026-05-01',ends_on:'2026-10-14'}],
         skipped:{},new_items:[],note:'Prévia de teste local.' } });
     });
@@ -54,8 +56,11 @@ async function main() {
     await page.locator('#pluggy-inter-preview-button').click();
     await page.waitForFunction(() => !document.querySelector('#pluggy-inter-import-button').disabled);
     assert.equal(requested.full_history, true);
+    assert.equal(requested.full_card_history, true);
+    assert.match(await page.locator('#pluggy-inter-preview').textContent(), /Fatura 08\/2026/);
+    assert.match(await page.locator('#pluggy-inter-preview').textContent(), /preservada, sem duplicar/);
     assert.match(await page.locator('#pluggy-inter-status').textContent(), /período completo/);
-    await page.locator('#pluggy-inter-full-history').uncheck();
+    await page.locator('#pluggy-inter-full-card-history').uncheck();
     assert.equal(await page.locator('#pluggy-inter-import-button').isDisabled(), true);
     assert.equal(await page.locator('#pluggy-inter-preview').isVisible(), false);
     assert.deepEqual(errors, []);

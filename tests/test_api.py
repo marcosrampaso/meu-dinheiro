@@ -475,6 +475,19 @@ class ApiTests(unittest.TestCase):
         self.assertEqual((status, history["purchase_total_cents"]), (200, 3000))
         self.assertEqual(self.call_api("/api/v1/purchase-categories?month=2026-13")[0], 400)
 
+    def test_card_history_preview_flag_and_provider_invoice_overlap_guard(self):
+        with patch.object(self.server.pluggy_inter,'preview',return_value={'full_card_history':True}) as preview:
+            status,_ = self.call_api('/api/v1/accounts/pluggy/inter/preview','POST',{'full_card_history':True})
+        self.assertEqual(status,200)
+        preview.assert_called_once_with(full_history=False,full_card_history=True)
+        with self.store._connect() as c:
+            c.execute("INSERT INTO invoice_coverage(source,scope,invoice_month,provider) VALUES ('Inter · cartão principal','personal','2026-08','pluggy')")
+        items=[{'source':'Inter · cartão principal','scope':'personal','invoice_month':'2026-08','occurred_on':'2026-05-10'}]
+        handler=object.__new__(FinanceHandler); handler.server=self.server
+        from finance import ValidationError
+        with self.assertRaisesRegex(ValidationError,'fatura já é atualizada'):
+            handler._check_card_import_overlap({'mode':'card'},items)
+
     def test_local_knn_suggestions_need_no_chatgpt_and_never_modify_until_review(self):
         for amount,category in [('28','Tabaco'),('35','Tabaco'),('150','Transporte'),('180','Transporte')]:
             self.store.add({'kind':'expense','description':'Autoposto exemplo','amount':amount,
