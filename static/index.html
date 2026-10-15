@@ -325,15 +325,15 @@
         </section>
       </section>
       <section id="news-view" class="app-view" role="tabpanel" aria-labelledby="news-tab" hidden>
-        <div class="investment-hero">
-          <div><p class="eyebrow">PESQUISA DE MERCADO</p><h1>Notícias dos seus ativos</h1><p>Fatos recentes, perspectivas e ideias para acompanhar.</p></div>
-        </div>
+        <header class="news-hero"><div><p class="eyebrow">SEU JORNAL DE INVESTIMENTOS</p><h1>Sua carteira,<br>em contexto.</h1><p>Entenda o que mudou. Saiba o que observar.<br>Encontre espaço para investir melhor.</p></div><div class="news-hero-mark" aria-hidden="true"><span>FATOS</span><span>CONTEXTO</span><span>PRÓXIMOS PASSOS ↗</span></div></header>
         <section class="panel news-intro" aria-labelledby="news-intro-title">
-          <div class="panel-header"><div><h2 id="news-intro-title">Pesquisar com GPT-6 Luna</h2><p id="news-position-label">Carregando posição...</p></div></div>
-          <p>Pesquisa sob demanda dos ativos da sua posição XP mais recente. O modelo recebe apenas os nomes dos ativos; valores, quantidades, documentos e conta não são enviados. As análises exibem as fontes consultadas.</p>
-          <div class="form-actions"><button id="news-refresh" class="primary-button" type="button">Atualizar pesquisa</button></div>
+          <div class="panel-header"><div><p class="eyebrow">SUA EDIÇÃO</p><h2 id="news-intro-title">Uma pesquisa feita para você</h2><p id="news-position-label">Carregando posição...</p></div><label class="news-model-label">Modelo de análise<select id="news-model"><option value="gpt-6.1-sol">GPT-6.1 Sol · análise mais completa</option><option value="gpt-6-luna">GPT-6 Luna · opção econômica</option></select></label></div>
+          <label class="checkbox-line news-personal-toggle"><input id="news-use-finances" type="checkbox" checked>Usar meus totais pessoais para sugerir prioridades</label>
+          <p class="news-privacy-copy">Ao atualizar, a OpenAI recebe os nomes dos ativos para pesquisar na web. Com a opção acima, uma segunda análise recebe saldos pessoais agregados, valores da carteira, médias por categoria e o plano de reserva. Essa etapa não acessa a web. Documentos, lançamentos individuais, credenciais e dados da PJ não são enviados.</p>
+          <div class="form-actions"><button id="news-refresh" class="primary-button" type="button">Atualizar pesquisa e análise ↗</button><span class="news-run-note">Sob demanda · usa seu plano ChatGPT</span></div>
           <div id="news-status" class="import-status" role="status" aria-live="polite"></div>
         </section>
+        <div id="news-context-preview"></div>
         <div id="news-report"></div>
       </section>
       <section id="review-view" class="app-view" role="tabpanel" aria-labelledby="review-tab" hidden>

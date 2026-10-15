@@ -116,6 +116,17 @@ class ChatGPTAuthTests(unittest.TestCase):
         self.assertNotIn("access-1", saved)
         self.assertNotIn("refresh-1", saved)
 
+    def test_research_model_is_explicit_available_and_does_not_change_categorization(self):
+        self._complete()
+        account=self.auth.data['accounts']['oaiapp_test']
+        account['model']='gpt-6-luna'
+        catalog={'models':[{'slug':'gpt-6.1-sol','visibility':'list'}]}
+        with patch('chatgpt_auth.urlopen',return_value=JsonResponse(catalog)):
+            self.assertEqual(self.auth.research_credentials(),('access-1','gpt-6.1-sol'))
+            self.assertEqual(account['model'],'gpt-6-luna')
+            with self.assertRaises(ChatGPTAuthError): self.auth.research_credentials('gpt-6-luna')
+        with self.assertRaises(ChatGPTAuthError): self.auth.research_credentials('unknown')
+
 
 if __name__ == "__main__":
     unittest.main()

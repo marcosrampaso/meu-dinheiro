@@ -280,6 +280,24 @@ class ChatGPTAuth:
             self._save()
             return token, "gpt-6-luna"
 
+    def research_credentials(self, model='gpt-6.1-sol') -> tuple[str, str]:
+        """Check the selected research model without changing categorization's model."""
+        if model not in ('gpt-6.1-sol','gpt-6-luna'):
+            raise ChatGPTAuthError('Escolha GPT-6.1 Sol ou GPT-6 Luna para pesquisar.')
+        with self.lock:
+            token, account = self._access_token()
+            request = Request(MODELS_URL, headers={'Authorization':f'Bearer {token}'})
+            try:
+                with urlopen(request, timeout=20) as response:
+                    catalog = json.load(response)
+                available = {item['slug'] for item in catalog.get('models',[])
+                             if isinstance(item,dict) and item.get('visibility')=='list' and isinstance(item.get('slug'),str)}
+            except (HTTPError,URLError,TimeoutError,OSError,ValueError,TypeError,KeyError) as exc:
+                raise ChatGPTAuthError('Não foi possível consultar os modelos do seu plano ChatGPT.') from exc
+            if model not in available:
+                raise ChatGPTAuthError(f'{model} não está disponível nesta conta. Escolha outro modelo de pesquisa.')
+            return token, model
+
     @staticmethod
     def _revoke(refresh_token: str, client_id: str) -> None:
         with urlopen(DISCOVERY_URL, timeout=20) as response:

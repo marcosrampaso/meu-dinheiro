@@ -19,7 +19,7 @@ from importers import (account_balance_from_csv, account_daily_balances_from_csv
                        account_period_from_csv, inspect_import, prepare_import)
 from xp_import import parse_xp_statement
 from xp_positions import parse_xp_positions
-from investment_news import ResearchError, research_assets
+from investment_news import ResearchError, research_assets, personalize_report
 from market_quotes import MarketQuotes
 from cdi import CDIBenchmark
 from weekly import WeeklyError, weekly_context, saved_weekly_report, save_weekly_report, generate_weekly_report
@@ -331,7 +331,10 @@ class FinanceHandler(BaseHTTPRequestHandler):
                                        "chatgpt_connected": self.server.auth.status()["connected"]})
             return
         if path == API_PREFIX + "/investments/news":
-            self._json(HTTPStatus.OK, {**self.server.store.investment_news(),
+            use_finances = query.get('use_finances',['true'])[0]
+            if use_finances not in ('true','false'):
+                raise ValidationError('Escolha se deseja usar os totais pessoais na pesquisa.')
+            self._json(HTTPStatus.OK, {**self.server.store.investment_news(use_finances == 'true'),
                                        "chatgpt_connected": self.server.auth.status()["connected"]})
             return
         if path == API_PREFIX + "/transactions":
@@ -502,14 +505,21 @@ class FinanceHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.OK, {"configured": True})
             return
         if path == API_PREFIX + "/investments/news":
-            context = self.server.store.investment_news_context()
+            data = self._read_json()
+            use_finances = data.get('use_finances',True)
+            if not isinstance(use_finances,bool):
+                raise ValidationError('Escolha se deseja usar os totais pessoais na pesquisa.')
+            context = self.server.store.investment_news_context(use_finances)
             if context is None:
                 raise ValidationError("Importe uma posição detalhada da XP antes da pesquisa.")
-            token, model = self.server.auth.luna_credentials()
+            token, model = self.server.auth.research_credentials(data.get('model','gpt-6.1-sol'))
             report = research_assets(context["assets"], token, model)
+            if use_finances:
+                report['personalization'] = personalize_report(report,context['financial_context'],token,model)
+            report.update({'schema_version':2,'uses_finances':use_finances,'financial_context':context['financial_context']})
             generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
             self.server.store.save_investment_news(context, report, generated_at, model)
-            self._json(HTTPStatus.OK, {**self.server.store.investment_news(),
+            self._json(HTTPStatus.OK, {**self.server.store.investment_news(use_finances),
                                        "chatgpt_connected": True})
             return
         if path == API_PREFIX + "/weekly-summary":

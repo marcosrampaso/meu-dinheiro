@@ -110,6 +110,12 @@ def main():
                    "category":"Mercado","scope":"personal","occurred_on":date.today().isoformat()})
         if "--history" in sys.argv:
             seed_history(store)
+        if '--news' in sys.argv:
+            seed_history(store)
+            store.import_xp_positions({'as_of':date.today().isoformat(),'total_cents':150000,'assets_cents':150000,
+                'receivables_cents':0,'cash_cents':0,'assets':[
+                    {'name':name,'category':'Ações','value_cents':50000,'cost_cents':45000,'quantity':'5','net_cents':None}
+                    for name in ('ABCD11','EFGH11','ZZZZ11')]})
         if "--learning" in sys.argv:
             for amount,category in [('28','Tabaco'),('35','Tabaco'),('150','Transporte'),('180','Transporte'),('32','Importado'),('160','Importado'),('80','Importado')]:
                 store.add({'kind':'expense','description':'Autoposto exemplo','amount':amount,

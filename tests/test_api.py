@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from app import FinanceHandler
+from investment_news import ResearchError
 from cdi import CDIBenchmark
 from chatgpt_auth import ChatGPTAuth
 from finance import FinanceStore
@@ -332,13 +333,39 @@ class ApiTests(unittest.TestCase):
                                 "short_term": "Cenário", "medium_term": "Cenário",
                                 "long_term": "Cenário", "risk": "Risco"}],
                     "opportunities": []}
-        with patch.object(self.server.auth, "luna_credentials", return_value=("fake-token", "gpt-6-luna")), \
+        with patch.object(self.server.auth, "research_credentials", return_value=("fake-token", "gpt-6-luna")), \
                 patch("app.research_assets", return_value=research) as researcher:
-            status, refreshed = self.call_api("/api/v1/investments/news", "POST", {})
+            status, refreshed = self.call_api("/api/v1/investments/news", "POST", {'use_finances':False,'model':'gpt-6-luna'})
         self.assertEqual(status, 200)
         researcher.assert_called_once_with(["ABCD11"], "fake-token", "gpt-6-luna")
         self.assertEqual(refreshed["report"]["assets"][0]["headline"], "Resultado")
-        self.assertEqual(self.call_api("/api/v1/investments/news")[1]["report"]["model"], "gpt-6-luna")
+        self.assertEqual(self.call_api("/api/v1/investments/news?use_finances=false")[1]["report"]["model"], "gpt-6-luna")
+        self.assertIsNone(self.call_api('/api/v1/investments/news')[1]['report'])
+        self.assertEqual(self.call_api('/api/v1/investments/news?use_finances=invalid')[0],400)
+
+    def test_personal_news_context_stays_out_of_search_and_failed_advice_keeps_cache(self):
+        self.store.import_xp_positions({'as_of':'2026-10-13','total_cents':1000,'assets_cents':1000,
+            'receivables_cents':0,'cash_cents':0,'assets':[
+                {'name':'ABCD11','category':'Ações','value_cents':1000,'cost_cents':900,'quantity':'1','net_cents':None}]})
+        self.store.save_account_balance('Pessoal','personal','2026-10-13',12345)
+        self.store.save_account_balance('Empresa','business','2026-10-13',999999)
+        research={'assets':[{'asset':'ABCD11','source_url':'https://www.b3.com.br/fato'}],'opportunities':[]}
+        advice={'summary':'Confira a liquidez.','priorities':[]}
+        with patch.object(self.server.auth,'research_credentials',return_value=('fake-token','gpt-6.1-sol')) as credentials, \
+                patch('app.research_assets',return_value=research) as market, \
+                patch('app.personalize_report',return_value=advice) as personal:
+            status,result=self.call_api('/api/v1/investments/news','POST',{'use_finances':True,'model':'gpt-6.1-sol'})
+            self.assertEqual(status,200)
+            credentials.assert_called_once_with('gpt-6.1-sol')
+            market.assert_called_once_with(['ABCD11'],'fake-token','gpt-6.1-sol')
+            self.assertEqual(personal.call_args.args[1]['cash']['balance_cents'],12345)
+            self.assertNotIn('999999',json.dumps(personal.call_args.args[1]))
+            self.assertTrue(result['report']['uses_finances'])
+            personal.side_effect=ResearchError('Falha controlada')
+            self.assertEqual(self.call_api('/api/v1/investments/news','POST',{})[0],502)
+        self.assertEqual(self.call_api('/api/v1/investments/news')[1]['report']['personalization'],advice)
+        self.assertIsNone(self.call_api('/api/v1/investments/news?use_finances=false')[1]['report'])
+        self.assertEqual(self.call_api('/api/v1/investments/news','POST',{'use_finances':'yes'})[0],400)
 
     def test_manual_card_purchase_appears_in_invoice_without_cash_expense(self):
         data = {"bank": "inter", "account": "principal", "invoice_month": "2026-10",

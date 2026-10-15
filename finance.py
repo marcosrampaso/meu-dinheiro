@@ -1108,8 +1108,8 @@ class FinanceStore:
                 WHERE source = ? AND identifier = ? ORDER BY quote_date DESC
             """, (source, identifier))]
 
-    def investment_news_context(self) -> dict | None:
-        """Return asset names only; amounts and account details never enter research prompts."""
+    def investment_news_context(self, use_finances: bool = False) -> dict | None:
+        """Snapshot research inputs; personal aggregates are explicitly optional."""
         with self._connect() as connection:
             row = connection.execute("SELECT as_of FROM investment_snapshots ORDER BY as_of DESC LIMIT 1").fetchone()
             if row is None:
@@ -1119,23 +1119,27 @@ class FinanceStore:
                 ORDER BY value_cents DESC, name
             """, (row["as_of"],))]
             names = all_names[:8]
-        signature = hashlib.sha256((row["as_of"] + "|" + "|".join(names)).encode("utf-8")).hexdigest()
+        from news_context import financial_context
+        financial = financial_context(self) if use_finances else None
+        signature = hashlib.sha256(json.dumps([2,row['as_of'],names,financial],sort_keys=True,ensure_ascii=False).encode()).hexdigest()
         return {"as_of": row["as_of"], "assets": names, "more_assets": max(0, len(all_names) - 8),
-                "signature": signature}
+                "signature": signature,'financial_context':financial,'uses_finances':use_finances}
 
-    def investment_news(self) -> dict:
-        context = self.investment_news_context()
+    def investment_news(self, use_finances: bool = False) -> dict:
+        context = self.investment_news_context(use_finances)
         if context is None:
             return {"position": None, "report": None}
         with self._connect() as connection:
-            row = connection.execute("""
-                SELECT generated_at, model, report_json FROM investment_news WHERE signature = ?
-            """, (context["signature"],)).fetchone()
+            candidates = connection.execute("""SELECT signature, generated_at, model, report_json FROM investment_news
+                WHERE signature=? OR as_of=? ORDER BY (signature=?) DESC, generated_at DESC""",
+                (context['signature'],context['as_of'],context['signature'])).fetchall()
+            row = next((row for row in candidates if bool(json.loads(row['report_json']).get('uses_finances')) == use_finances),None)
         report = ({"generated_at": row["generated_at"], "model": row["model"],
                    **json.loads(row["report_json"])} if row else None)
         return {"position": {"as_of": context["as_of"], "assets": context["assets"],
                              "more_assets": context["more_assets"]},
-                "report": report}
+                "report": report, 'financial_context':context['financial_context'],
+                'report_stale':bool(row and row['signature'] != context['signature']), 'uses_finances':use_finances}
 
     def save_investment_news(self, context: dict, report: dict, generated_at: str, model: str) -> dict:
         with self._connect() as connection:

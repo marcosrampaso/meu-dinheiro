@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from investment_news import ResearchError, _asset_source_match, research_assets
+from investment_news import ResearchError, _asset_source_match, research_assets, personalize_report
 
 
 class FakeResponse:
@@ -91,6 +91,27 @@ class InvestmentNewsTests(unittest.TestCase):
         with patch("investment_news.urlopen", return_value=FakeResponse(completed(report, []))):
             with self.assertRaisesRegex(ResearchError, "fontes verificáveis"):
                 research_assets(["ABCD11"], "fake-token", "gpt-6-luna")
+
+    def test_personalization_sends_aggregates_without_search_tools_and_rejects_new_citations(self):
+        url='https://www.b3.com.br/relatorio'
+        report={'assets':[{'asset':'ABCD11','source_url':url}],'opportunities':[]}
+        context={'cash':{'balance_cents':12345},'reserve':None}
+        advice={'summary':'Confira a reserva antes de ampliar risco.','priorities':[{
+            'title':'Rever liquidez','action':'Confira o prazo de resgate.','reason':'Reserva não informada.',
+            'benefit':'Evitar vender com pressa.','condition':'Confirme as obrigações.','risk':'Liquidez e oscilação.',
+            'source_url':'https://example.com/inventado','basis':'reserve'}]}
+        requests=[]
+        def fake(request,timeout):
+            requests.append(json.loads(request.data)); return FakeResponse(completed(advice,[]))
+        with patch('investment_news.urlopen',side_effect=fake):
+            result=personalize_report(report,context,'test-token','gpt-6.1-sol')
+        self.assertEqual(requests[0]['tools'],[])
+        self.assertFalse(requests[0]['store'])
+        self.assertEqual(json.loads(requests[0]['input'][1]['content'])['personal_finances'],context)
+        self.assertEqual(result['priorities'][0]['source_url'],'')
+        advice['priorities'][0]['basis']='execute_trade'
+        with patch('investment_news.urlopen',side_effect=fake),self.assertRaises(ResearchError):
+            personalize_report(report,context,'test-token','gpt-6.1-sol')
 
 
 if __name__ == "__main__":
