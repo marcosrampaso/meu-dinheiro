@@ -721,12 +721,20 @@ class FinanceStore:
                     (source, scope, starts_on, ends_on),
                 )
 
-    def analytics(self, end_month: str, scope: str = "personal", months: int = 6, payment_type: str = "all") -> dict:
+    def analytics(self, end_month: str, scope: str = "personal", months: int | str = 6, payment_type: str = "all") -> dict:
         """Return chart data with explicit cash statement coverage."""
         payment_type = validate_payment_type(payment_type)
         end_month = validate_month(end_month)
         scope = validate_scope(scope, allow_all=True)
-        if isinstance(months, bool) or not isinstance(months, int) or not 1 <= months <= 24:
+        if months == 'all':
+            with self._connect() as connection:
+                first_month = connection.execute("""SELECT MIN(COALESCE(invoice_month,substr(occurred_on,1,7)))
+                    FROM transactions WHERE COALESCE(invoice_month,substr(occurred_on,1,7)) <= ?
+                    AND (?='all' OR scope=?)
+                    AND (?='all' OR (?='credit' AND invoice_month IS NOT NULL) OR (?='account' AND invoice_month IS NULL))
+                    """, (end_month,scope,scope,payment_type,payment_type,payment_type)).fetchone()[0] or end_month
+            months = max(1, (int(end_month[:4])-int(first_month[:4]))*12 + int(end_month[5:])-int(first_month[5:])+1)
+        elif isinstance(months, bool) or not isinstance(months, int) or not 1 <= months <= 24:
             raise ValidationError("Escolha de 1 a 24 meses para os gráficos.")
         month_list = [end_month]
         for _ in range(months - 1):
@@ -751,6 +759,7 @@ class FinanceStore:
             )]
             category_rows = [dict(row) for row in connection.execute("""
                 SELECT COALESCE(invoice_month, substr(occurred_on, 1, 7)) AS month, category,
+                       CASE WHEN invoice_month IS NULL THEN 'account' ELSE 'credit' END AS payment_type,
                        SUM(amount_cents) AS amount_cents
                 FROM transactions
                 WHERE kind = 'expense' AND excluded = 0 AND category != 'Pagamento de fatura'
@@ -758,7 +767,7 @@ class FinanceStore:
                   AND COALESCE(invoice_month, substr(occurred_on, 1, 7)) <= ?
                   AND (? = 'all' OR scope = ?)
                   AND (?='all' OR (?='credit' AND invoice_month IS NOT NULL) OR (?='account' AND invoice_month IS NULL))
-                GROUP BY month, category ORDER BY month, amount_cents DESC, category
+                GROUP BY month, category, payment_type ORDER BY month, amount_cents DESC, category
             """, (month_list[0], end_month, scope, scope, payment_type, payment_type, payment_type))]
         invoices_by_month: dict[str, dict] = {}
         for invoice in self.invoice_history(scope):
@@ -793,15 +802,23 @@ class FinanceStore:
         for row in balance_rows:
             series.setdefault((row["source"], row["scope"]), []).append(
                 {"date": row["as_of"], "amount_cents": row["amount_cents"]})
-        spending_by_month: dict[str, list[dict]] = {month: [] for month in month_list}
+        spending_by_month = {month: {} for month in month_list}
+        breakdown = {month:{origin:{'total_cents':0,'uncategorized_cents':0} for origin in ('account','credit')}
+                     for month in month_list}
         for row in category_rows:
-            spending_by_month[row["month"]].append(
-                {"category": row["category"], "amount_cents": row["amount_cents"]})
+            categories = spending_by_month[row['month']]
+            categories[row['category']] = categories.get(row['category'],0) + row['amount_cents']
+            origin = breakdown[row['month']][row['payment_type']]
+            origin['total_cents'] += row['amount_cents']
+            if row['category'] == 'Importado':
+                origin['uncategorized_cents'] += row['amount_cents']
         return {"scope": scope, "payment_type": payment_type, "end_month": end_month, "months": month_list,
                 "cashflow": cashflow, "invoices": invoices,
                 "category_spending": [
-                    {"month": month, "total_cents": sum(item["amount_cents"] for item in spending_by_month[month]),
-                     "categories": spending_by_month[month]}
+                    {"month": month, "total_cents": sum(spending_by_month[month].values()),
+                     "breakdown": breakdown[month],
+                     "categories": [{'category':name,'amount_cents':amount} for name,amount in
+                                    sorted(spending_by_month[month].items(),key=lambda pair:(-pair[1],pair[0]))]}
                     for month in month_list],
                 "balance_series": [{"source": source, "scope": account_scope, "points": points}
                                    for (source, account_scope), points in series.items()]}

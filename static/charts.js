@@ -230,6 +230,18 @@ function drawCategorySpending(rows) {
     total.textContent = row.total_cents ? money.format(row.total_cents / 100) : "—";
     total.title = `Valor mostrado: ${money.format(row.total_cents / 100)} · Total detalhado do mês: ${money.format(row.original_total_cents / 100)}`;
     line.append(month, track, total);
+    if (row.breakdown) {
+      const origins = document.createElement("small");
+      origins.className = "category-month-origins";
+      origins.textContent = [["credit", "Cartão"], ["account", "Conta corrente"]]
+        .filter(([origin]) => spendingTypeInput.value === "all" || spendingTypeInput.value === origin)
+        .map(([origin, label]) => {
+          const values = row.breakdown[origin];
+          const amount = values.total_cents - (includeUncategorized.checked ? 0 : values.uncategorized_cents);
+          return `${label}: ${money.format(amount / 100)}`;
+        }).join(" · ");
+      line.append(origins);
+    }
     target.append(line);
   }
   for (const name of names) {

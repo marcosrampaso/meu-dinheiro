@@ -137,6 +137,46 @@ def _bank_classification(row: dict, description: str, kind: str) -> tuple[str, b
     return "Importado", False
 
 
+def _bill_months(bills, transactions, local_invoices):
+    """Use the closing cycle, keeping previously reviewed PDF month references."""
+    from pluggy_sync import same_invoice
+    months = {}
+    open_months = {row['creditCardMetadata'].get('billForecastDate') for row in transactions
+                   if row.get('status') == 'PENDING' and isinstance(row.get('creditCardMetadata'),dict)
+                   and isinstance(row['creditCardMetadata'].get('billForecastDate'),str)}
+    for bill in bills:
+        bill_id = bill.get('id')
+        if not UUID.fullmatch(str(bill_id or '')):
+            continue
+        if bill.get('billClosingDate'):
+            months[bill_id] = _iso_date(bill['billClosingDate'], 'o fechamento da fatura')[:7]
+            continue
+        due_date = _iso_date(bill['dueDate'], 'uma fatura') if bill.get('dueDate') else None
+        previous_month = date.fromordinal(date.fromisoformat(due_date[:7]+'-01').toordinal()-1).isoformat()[:7] if due_date else None
+        entries = []
+        for row in transactions:
+            metadata = row.get('creditCardMetadata') or {}
+            if not isinstance(metadata, dict) or metadata.get('billId') != bill_id or row.get('status') != 'POSTED':
+                continue
+            description = str(row.get('description') or '')
+            if card_payment(row, description):
+                continue
+            if row.get('type') not in ('DEBIT', 'CREDIT'):
+                continue  # The transaction validator below reports the error.
+            entries.append({'description':description, 'occurred_on':_iso_date(row.get('date'), 'uma transação'),
+                'kind':'expense' if row['type'] == 'DEBIT' else 'income', 'amount_cents':abs(_cents(row.get('amount')))})
+        recognized = [month for month, rows in local_invoices.items()
+                      if month == previous_month and same_invoice(entries, rows)]
+        if recognized:
+            months[bill_id] = recognized[0]
+        elif due_date:
+            if due_date[:7] in open_months and entries and all(row['occurred_on'][:7] < due_date[:7] for row in entries):
+                raise PluggyError('Uma fatura fechada veio sem data de fechamento e pode se misturar à fatura aberta. '
+                                 'Confira o ciclo no Inter antes de importar; nenhum lançamento foi substituído.')
+            months[bill_id] = due_date[:7]
+    return months
+
+
 class PluggyInter:
     def __init__(self, store: FinanceStore, pluggy: PluggyXP):
         self.store = store
@@ -184,6 +224,10 @@ class PluggyInter:
         full_card_history = full_card_history or 'pluggy' in invoice_sources.values()
         protected_invoices = {month for month,provider in invoice_sources.items()
                               if provider != 'pluggy' and month < starts_on[:7]}
+        with self.store._connect() as connection:
+            local_invoices = {month:[dict(row) for row in connection.execute(
+                'SELECT * FROM transactions WHERE source=? AND scope=? AND invoice_month=?',
+                (CARD_SOURCE,'personal',month))] for month in protected_invoices}
         card_months = set()
         card_invoices = []
         warnings = []
@@ -200,11 +244,8 @@ class PluggyInter:
             source = CARD_SOURCE if is_card else ACCOUNT_SOURCE
             account_id = account["id"]
             bills = _pages("/bills?" + urlencode({"accountId": account_id}), api_key, http_json) if is_card else []
-            bill_months = {}
-            for bill in bills:
-                if UUID.fullmatch(str(bill.get("id", ""))) and bill.get("dueDate"):
-                    bill_months[bill["id"]] = _iso_date(bill["dueDate"], "uma fatura")[:7]
             transactions = _transactions(account_id, api_key, http_json)
+            bill_months = _bill_months(bills, transactions, local_invoices) if is_card else {}
             dates = [_iso_date(row.get("date"), "uma transação") for row in transactions
                      if is_card or row.get('status') == 'POSTED']
             dates = [value for value in dates if value <= date.today().isoformat()]
@@ -341,7 +382,7 @@ class PluggyInter:
                                                       "occurred_on", "source", "invoice_month",
                                                       "category", "excluded", "pending")}
                               for row in prepared],
-                "note": f"Conta: operações disponíveis desde {account_starts_on}. Cartão: {'histórico disponível por mês da fatura, com faturas locais anteriores preservadas' if full_card_history else f'compras desde {card_starts_on}, após o histórico das faturas importadas'}. Pagamentos de cartão não são compras. Categorias reconhecidas são preservadas; compras pendentes são provisórias."}
+                "note": f"Conta: operações disponíveis desde {account_starts_on}. Cartão: {'histórico disponível por mês da fatura, com faturas locais anteriores preservadas' if full_card_history else f'compras desde {card_starts_on}, após o histórico das faturas importadas'}. O mês usa a referência local conferida ou o fechamento; sem essa informação, usa o vencimento. A fatura aberta usa a previsão da Pluggy. O nome no Inter pode ser o mês seguinte, de pagamento. Pagamentos de cartão não são compras. Categorias reconhecidas são preservadas; compras pendentes são provisórias."}
 
     def import_preview(self, token: object) -> dict:
         with self._lock:

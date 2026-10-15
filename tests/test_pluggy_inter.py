@@ -7,7 +7,8 @@ from unittest.mock import patch
 from pathlib import Path
 
 from finance import FinanceStore
-from pluggy_inter import PluggyInter, _bank_classification, card_payment, live_start
+from pluggy_inter import PluggyInter, _bank_classification, _bill_months, card_payment, live_start
+from pluggy_sync import same_invoice
 from pluggy_sync import restore_inter_history
 from pluggy_xp import PluggyError, PluggyXP
 
@@ -135,6 +136,63 @@ class PluggyInterTests(unittest.TestCase):
         second = self.inter.preview(updated_http)
         self.assertEqual(second["new_count"], 5)
         self.assertEqual(second["new_items"][-1]["description"], "Nova compra")
+
+    def test_closed_previous_cycle_and_open_forecast_are_not_combined(self):
+        # Purchases in September: closed in September, payable in October.
+        # October's open cycle must not also include that closed September bill.
+        for index, amount in enumerate((10,20,30)):
+            self.store.add_card_purchase({'bank':'inter','account':'cartão principal',
+                'invoice_month':'2026-09','occurred_on':f'2026-09-{10+index}',
+                'description':f'Loja exemplo {index}','amount':str(amount),'category':'Mercado'})
+        self.store.save_invoice_coverage('Inter · cartão principal','personal','2026-09')
+        def cycles(method,path,payload=None,api_key=None):
+            result=self.fake_http(method,path,payload,api_key)
+            if path.startswith('/bills?'):
+                result['results']=[{'id':BILL_ID,'dueDate':'2026-10-10',
+                    'billClosingDate':'2026-09-30','totalAmount':60}]
+            if path.startswith('/v2/transactions?') and CARD_ID in path:
+                result['results']=[transaction(f'bbbbbbb{index+1}-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+                    f'2026-09-{10+index}',f'Loja exemplo {index}',amount,'DEBIT',
+                    creditCardMetadata={'billId':BILL_ID}) for index,amount in enumerate((10,20,30))]
+                result['results'].append(transaction('bbbbbbb9-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+                    '2026-10-10','Compra atual',40,'DEBIT',status='PENDING',
+                    creditCardMetadata={'billForecastDate':'2026-10'}))
+            return result
+        for _ in range(2):
+            preview=self.inter.preview(cycles,full_card_history=True)
+            self.assertEqual(preview['skipped']['existing_invoice'],3)
+            self.inter.import_preview(preview['preview_token'])
+            self.assertEqual(len(self.store.invoice_items('2026-09','Inter · cartão principal')),3)
+            current=self.store.invoice_items('2026-10','Inter · cartão principal')
+            self.assertEqual((len(current),sum(r['amount_cents'] for r in current)),(1,4000))
+
+    def test_bill_cycle_uses_closing_date_and_recognizes_pdf_when_closing_is_absent(self):
+        bill={'id':BILL_ID,'dueDate':'2026-10-10','billClosingDate':'2026-09-30'}
+        self.assertEqual(_bill_months([bill],[],{}),{BILL_ID:'2026-09'})
+        bill.pop('billClosingDate')
+        existing=[{'kind':'expense','description':f'Loja exemplo {i}','amount_cents':1000+i,
+            'occurred_on':'2026-09-10','import_key':f'pdf-{i}','category':'Mercado'} for i in range(10)]
+        remote=[transaction(f'bbbbbbb{i}-bbbb-bbbb-bbbb-bbbbbbbbbbbb','2026-09-10',
+            row['description'],row['amount_cents']/100,'DEBIT',creditCardMetadata={'billId':BILL_ID})
+            for i,row in enumerate(existing)]
+        self.assertEqual(_bill_months([bill],remote,{'2026-09':existing}),{BILL_ID:'2026-09'})
+        self.assertTrue(same_invoice(existing,existing))
+        self.assertFalse(same_invoice(existing,existing[:-1]))
+        changed=[{**row,'amount_cents':row['amount_cents']+1} for row in existing]
+        self.assertFalse(same_invoice(changed,existing))
+        # Repeated matching to one merchant/date must not masquerade as a whole bill.
+        repeated=[{**row,'description':'Loja exemplo','amount_cents':1000} for row in existing]
+        other=[{**row,'description':'Outra compra','amount_cents':1000} for row in existing]
+        other[0]=repeated[0]
+        self.assertFalse(same_invoice(repeated,other))
+
+    def test_unknown_closed_cycle_cannot_be_added_to_an_open_forecast(self):
+        rows=[transaction('bbbbbbb1-bbbb-bbbb-bbbb-bbbbbbbbbbbb','2026-09-10','Loja',10,'DEBIT',
+            creditCardMetadata={'billId':BILL_ID}),
+            transaction('bbbbbbb2-bbbb-bbbb-bbbb-bbbbbbbbbbbb','2026-10-10','Compra aberta',20,'DEBIT',
+                status='PENDING',creditCardMetadata={'billForecastDate':'2026-10'})]
+        with self.assertRaisesRegex(PluggyError,'pode se misturar'):
+            _bill_months([{'id':BILL_ID,'dueDate':'2026-10-10'}],rows,{})
 
     def test_duplicates_are_replaced_but_categories_and_pj_survive(self):
         self.store.add_card_purchase({"bank":"inter","account":"cartão principal","invoice_month":"2026-10",

@@ -2,7 +2,7 @@
 
 import os
 import sqlite3
-from collections import defaultdict
+from collections import Counter, defaultdict
 from contextlib import closing
 from datetime import date, datetime, timezone, timedelta
 
@@ -84,6 +84,36 @@ def _matches(item, old):
     similar = [row for row in same if words and
                len(words & _description_words(row["description"])) / max(1, len(words | _description_words(row["description"]))) >= .5]
     return similar + [r for r in keyed if r not in similar]
+
+
+def same_invoice(items, existing):
+    """Recognize a whole invoice, allowing changed merchant text/purchase dates.
+
+    Require equal amount/type multisets and a one-to-one match for at least 90%
+    of the rows. A recurring purchase alone is not evidence of a duplicate bill.
+    """
+    if len(items) < 10 or len(items) != len(existing):
+        return False
+    signature = lambda rows: Counter((r['kind'], r['amount_cents']) for r in rows)
+    if signature(items) != signature(existing):
+        return False
+    candidates = [[index for index, row in enumerate(existing)
+                   if _matches({**item, 'import_key':None}, [{**row, 'import_key':''}])]
+                  for item in items]
+    assigned = {}
+
+    def assign(item_index, visited):
+        for row_index in candidates[item_index]:
+            if row_index in visited:
+                continue
+            visited.add(row_index)
+            if row_index not in assigned or assign(assigned[row_index], visited):
+                assigned[row_index] = item_index
+                return True
+        return False
+
+    matched = sum(assign(index, set()) for index in range(len(items)))
+    return matched * 10 >= len(items) * 9
 
 
 def restore_inter_history(store, historical_items, starts_on, statement_periods=()):

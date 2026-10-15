@@ -47,3 +47,24 @@ class PaymentViewTests(unittest.TestCase):
                           lambda: self.store.analytics('2026-10',payment_type='invalid'),
                           lambda: self.store.purchase_categories(payment_type='invalid')]:
             with self.assertRaises(ValidationError): operation()
+
+    def test_monthly_origins_sum_to_the_combined_bar_and_track_uncategorized(self):
+        row=self.store.analytics('2026-10',months=1)['category_spending'][0]
+        self.assertEqual(row['breakdown']['account'],{'total_cents':4000,'uncategorized_cents':1500})
+        self.assertEqual(row['breakdown']['credit'],{'total_cents':8000,'uncategorized_cents':0})
+        self.assertEqual(sum(v['total_cents'] for v in row['breakdown'].values()),row['total_cents'])
+        self.assertEqual({r['category']:r['amount_cents'] for r in row['categories']},
+            {'Mercado':10500,'Importado':1500})
+
+    def test_all_history_respects_scope_origin_end_month_and_invoice_reference(self):
+        self.store.add_card_purchase({'bank':'inter','account':'exemplo','invoice_month':'2025-01',
+            'occurred_on':'2024-10-10','description':'Parcela antiga','category':'Mercado','amount':'5'})
+        self.store.add({'kind':'expense','description':'PJ antigo','amount':'1','category':'Mercado',
+            'occurred_on':'2024-01-10','scope':'business'})
+        personal=self.store.analytics('2026-10',months='all',payment_type='credit')
+        self.assertEqual((personal['months'][0],personal['months'][-1]),('2025-01','2026-10'))
+        self.assertEqual(personal['category_spending'][0]['total_cents'],500)
+        account=self.store.analytics('2026-10',months='all',payment_type='account')
+        self.assertEqual(account['months'],['2026-10'])
+        self.assertEqual(self.store.analytics('2026-10','all','all')['months'][0],'2024-01')
+        self.assertEqual(self.store.analytics('2023-10',months='all')['months'],['2023-10'])

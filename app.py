@@ -255,10 +255,10 @@ class FinanceHandler(BaseHTTPRequestHandler):
             return
         if path == API_PREFIX + "/analytics":
             raw_months = query.get("months", ["6"])[0]
-            if not raw_months.isdecimal():
+            if raw_months != 'all' and not raw_months.isdecimal():
                 raise ValidationError("Escolha de 1 a 24 meses para os gráficos.")
             self._json(HTTPStatus.OK, self.server.store.analytics(
-                self._month(query), self._scope(query), int(raw_months), query.get("payment_type", ["all"])[0]))
+                self._month(query), self._scope(query), 'all' if raw_months == 'all' else int(raw_months), query.get("payment_type", ["all"])[0]))
             return
         if path == API_PREFIX + "/data-health":
             self._json(HTTPStatus.OK, data_health(self.server.store, self._month(query), self._scope(query)))

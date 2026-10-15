@@ -22,6 +22,11 @@ async function main() {
     await page.waitForFunction(() => document.querySelector('#spending-credit-total').textContent.includes('100,00'));
     assert.match(await page.locator('#spending-account-total').textContent(), /40,00/);
     assert.match(await page.locator('#spending-account-pending').textContent(), /15,00 sem categoria/);
+    await page.waitForFunction(() => document.querySelector('#category-month-chart .category-month-row:last-child .category-month-origins')?.textContent.includes('Conta corrente: R$'));
+    let origins=page.locator('#category-month-chart .category-month-row:last-child .category-month-origins');
+    assert.match(await origins.textContent(),/Cartão: R\$\s*100,00.*Conta corrente: R\$\s*25,00/);
+    await page.locator('#chart-months').selectOption('all');
+    await page.waitForFunction(() => document.querySelectorAll('#category-month-chart .category-month-row').length === 1);
     await page.locator('[data-spending-type="credit"]').click();
     await page.waitForFunction(() => document.querySelector('#category-title').textContent === 'Cartão de crédito por categoria');
     assert.match(await page.locator('#purchase-total').textContent(), /100,00/);
@@ -36,6 +41,9 @@ async function main() {
     assert.equal(await page.locator('#transactions-list').textContent().then(t => t.includes('Mercado no cartão')),false);
     await page.locator('#include-uncategorized').check();
     await page.waitForFunction(() => document.querySelector('#purchase-total').textContent.includes('40,00'));
+    await page.waitForFunction(() => document.querySelector('#category-month-chart .category-month-row:last-child .category-month-origins')?.textContent.includes('40,00'));
+    origins=page.locator('#category-month-chart .category-month-row:last-child .category-month-origins');
+    assert.doesNotMatch(await origins.textContent(),/Cartão/);
     await page.locator('#privacy-toggle').click();
     await page.waitForFunction(() => document.querySelector('#spending-credit-total').textContent === 'R$ ••••');
     assert.equal(await page.locator('#spending-account-total').textContent(),'R$ ••••');
