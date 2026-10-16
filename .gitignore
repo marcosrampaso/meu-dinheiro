@@ -21,3 +21,9 @@ data/
 .env
 .env.*
 !.env.example
+
+# Aplicativos e artefatos de compilação locais
+build/
+dist/
+*.dmg
+*.app/

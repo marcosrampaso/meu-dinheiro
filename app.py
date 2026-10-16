@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import signal
+import sys
 import threading
 import webbrowser
 from datetime import date, datetime, timezone
@@ -32,6 +35,8 @@ from manual_investments import (manual_overview, save_manual_flow, delete_manual
 from pluggy_xp import PluggyXP, PluggyError
 from pluggy_inter import PluggyInter
 from local_auth import LocalAuth, LocalAuthError, SESSION_SECONDS
+from accounts import LocalAccounts, data_directory_lock
+from workspaces import Workspace, RequestWorkspace
 from webhook_client import WebhookClient, RelayError
 from reserve_plan import reserve_overview, preview_reserve, save_reserve, delete_reserve
 from plan_insights import history_insights, preview_history, save_history_review
@@ -69,19 +74,46 @@ API_PREFIX = "/api/v1"
 class FinanceHTTPServer(ThreadingHTTPServer):
     # Browsers fetch many scripts together; allow room for parallel connections.
     request_queue_size = 64
+    daemon_threads = True
 
     def __init__(self, address: tuple[str, int], store: FinanceStore):
-        self.local_auth = LocalAuth(BASE_DIR / "touchid.swift", store.path.parent)
+        existing_identity = (store.path.parent/'local-identity.json').exists()
+        with store._connect() as connection:
+            has_data = connection.execute('SELECT EXISTS(SELECT 1 FROM transactions) OR EXISTS(SELECT 1 FROM investment_snapshots)').fetchone()[0]
+        owner = LocalAuth(BASE_DIR / "touchid.swift", store.path.parent)
+        self.local_auth = LocalAccounts(owner,claimable=not existing_identity and not has_data)
+        self._workspace_lock = threading.RLock()
+        self._workspaces = {}
         super().__init__(address, FinanceHandler)
-        self.store = store
-        self.auth = ChatGPTAuth(BASE_DIR / "data" / "chatgpt-auth.json")
-        self.market = MarketQuotes(store, store.path.parent / "brapi-token")
-        self.pluggy = PluggyXP(store, store.path.parent / "pluggy-xp.json")
-        self.pluggy_inter = PluggyInter(store, self.pluggy)
-        self.webhooks = WebhookClient(store,self.pluggy,self.pluggy_inter,store.path.parent/'pluggy-relay.json')
-        self.market.start()
-        self.cdi = CDIBenchmark(store)
-        self.cdi.start()
+        identifier = owner._identity['principal_id']
+        workspace = Workspace(store,self.local_auth.profile(identifier))
+        self._workspaces[identifier] = workspace
+        # Compatibility for startup/status; authenticated requests bind their own workspace.
+        for name in ('store','auth','market','pluggy','pluggy_inter','webhooks','cdi'):
+            setattr(self,name,getattr(workspace,name))
+
+    def for_principal(self, identifier):
+        with self._workspace_lock:
+            if identifier not in self._workspaces:
+                profile = self.local_auth.profile(identifier)
+                store = FinanceStore(self.local_auth.directory(identifier)/'financas.db')
+                if profile['demo']:
+                    from demo import seed_demo
+                    seed_demo(store)
+                self._workspaces[identifier] = Workspace(store,profile)
+            return RequestWorkspace(self,self._workspaces[identifier])
+
+    def for_oauth(self, state):
+        with self._workspace_lock:
+            for workspace in self._workspaces.values():
+                with workspace.auth.lock:
+                    if state and state in workspace.auth.pending:
+                        return RequestWorkspace(self,workspace)
+        raise LocalAuthError('A conexão não pertence a uma solicitação ativa. Inicie novamente nas Configurações.')
+
+    def server_close(self):
+        super().server_close()
+        self.local_auth.close()
 
 
 class FinanceHandler(BaseHTTPRequestHandler):
@@ -106,6 +138,8 @@ class FinanceHandler(BaseHTTPRequestHandler):
 
     def _handle(self, action) -> None:
         try:
+            self.server = getattr(self,'_root_server',self.server)
+            self._root_server = self.server
             if self.headers.get("Host") not in (
                 f"127.0.0.1:{self.server.server_port}",
                 f"localhost:{self.server.server_port}",
@@ -115,10 +149,22 @@ class FinanceHandler(BaseHTTPRequestHandler):
             path = urlsplit(self.path).path
             if path.startswith(API_PREFIX) and path not in (
                 API_PREFIX + "/local-auth/status", API_PREFIX + "/local-auth/unlock",
-                API_PREFIX + "/local-auth/password-login"
+                API_PREFIX + "/local-auth/password-login", API_PREFIX + '/local-auth/register',
+                API_PREFIX + '/local-auth/demo'
             ) and not self.server.local_auth.valid(self.headers.get("X-Local-Session")):
                 self._json(HTTPStatus.UNAUTHORIZED, {"error": "Desbloqueie o aplicativo para continuar."})
                 return
+            if hasattr(self.server,'for_principal'):
+                principal = self.server.local_auth.principal(self.headers.get('X-Local-Session'))
+                if path == '/auth/callback':
+                    self.server = self.server.for_oauth(parse_qs(urlsplit(self.path).query).get('state',[''])[0])
+                elif principal:
+                    self.server = self.server.for_principal(principal['principal_id'])
+                if getattr(self.server,'demo',False) and self.command != 'GET':
+                    if path.startswith((API_PREFIX+'/auth/',API_PREFIX+'/investments/pluggy',API_PREFIX+'/pluggy/',
+                                        API_PREFIX+'/accounts/pluggy',API_PREFIX+'/investments/quotes',API_PREFIX+'/investments/brapi',API_PREFIX+'/benchmarks/')) or path in (
+                            API_PREFIX+'/investments/news',API_PREFIX+'/weekly-summary'):
+                        raise ValidationError('A demonstração usa dados fictícios e não conecta serviços externos. Crie uma conta local para usar integrações.')
             action()
         except ValidationError as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
@@ -215,9 +261,10 @@ class FinanceHandler(BaseHTTPRequestHandler):
         path, query = self._route()
         if path == API_PREFIX + "/local-auth/status":
             status_method = getattr(self.server.local_auth, "status", None)
-            self._json(HTTPStatus.OK, status_method() if status_method else {
+            state = status_method(self.headers.get('X-Local-Session')) if isinstance(self.server.local_auth,LocalAccounts) else status_method() if status_method else {
                 "touch_id_available": True, "password_configured": False,
-                "session_seconds": SESSION_SECONDS})
+                "session_seconds": SESSION_SECONDS}
+            self._json(HTTPStatus.OK,state)
             return
         if path == API_PREFIX + "/local-auth/session":
             self._json(HTTPStatus.OK, self.server.local_auth.session_info(
@@ -370,15 +417,26 @@ class FinanceHandler(BaseHTTPRequestHandler):
         if not self._require_same_origin():
             return
         path, _ = self._route()
+        if path in (API_PREFIX+'/local-auth/register',API_PREFIX+'/local-auth/demo'):
+            if not isinstance(self.server.local_auth,LocalAccounts):
+                raise ValidationError('O cadastro local não está disponível neste servidor.')
+            data = self._read_json()
+            if path.endswith('/register'):
+                if data.get('password') != data.get('password_confirmation'):
+                    raise ValidationError('As duas senhas precisam ser iguais.')
+                token = self.server.local_auth.register(data.get('username'),data.get('display_name'),data.get('password'))
+            else:
+                token = self.server.local_auth.demo()
+            self._json(HTTPStatus.CREATED,self._login_result(token))
+            return
         if path == API_PREFIX + "/local-auth/unlock":
             self._read_json()
-            self._json(HTTPStatus.OK, {"token": self.server.local_auth.unlock(),
-                                       "session_seconds": SESSION_SECONDS})
+            self._json(HTTPStatus.OK,self._login_result(self.server.local_auth.unlock()))
             return
         if path == API_PREFIX + "/local-auth/password-login":
             data = self._read_json()
-            self._json(HTTPStatus.OK, {"token": self.server.local_auth.unlock_password(data.get("password")),
-                                       "session_seconds": SESSION_SECONDS})
+            token = self.server.local_auth.unlock_password(data.get('password'),data.get('username')) if isinstance(self.server.local_auth,LocalAccounts) else self.server.local_auth.unlock_password(data.get('password'))
+            self._json(HTTPStatus.OK,self._login_result(token))
             return
         if path == API_PREFIX + "/local-auth/password":
             data = self._read_json()
@@ -588,7 +646,7 @@ class FinanceHandler(BaseHTTPRequestHandler):
             rows, count = self.server.store.uncategorized_purchases(
                 data.get("scope", "personal"), data.get("month"),
                 payment_type=data.get("payment_type", "all"))
-            engine = data.get('engine', 'hybrid')
+            engine = 'local' if getattr(self.server,'demo',False) else data.get('engine', 'hybrid')
             if engine not in ('local', 'hybrid'):
                 raise ValidationError('Escolha aprendizado local ou local com ChatGPT.')
             learned = self.server.store.local_category_suggestions(rows)
@@ -712,6 +770,12 @@ class FinanceHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _login_result(self, token):
+        result = {'token':token,'session_seconds':SESSION_SECONDS}
+        if isinstance(self.server.local_auth,LocalAccounts):
+            result['profile'] = self.server.local_auth.session_info(token)['profile']
+        return result
+
     def _redirect(self, location: str) -> None:
         self.send_response(HTTPStatus.SEE_OTHER)
         self.send_header("Location", location)
@@ -722,23 +786,30 @@ class FinanceHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    if getattr(sys,'frozen',False):
+        import certifi
+        os.environ.setdefault('SSL_CERT_FILE',certifi.where())
+    def terminate(signum, frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM,terminate)
     parser = argparse.ArgumentParser(description="Finanças pessoais no navegador")
     parser.add_argument("--port", type=int, default=8765, help="Porta local (padrão: 8765)")
     parser.add_argument("--db", type=Path, default=BASE_DIR / "data" / "financas.db")
     parser.add_argument("--no-browser", action="store_true", help="Não abrir o navegador automaticamente")
     args = parser.parse_args()
-    store = FinanceStore(args.db)
-    with FinanceHTTPServer(("127.0.0.1", args.port), store) as server:
-        url = f"http://127.0.0.1:{server.server_port}"
-        print(f"Finanças disponível em {url}")
-        print(f"Dados salvos em {args.db.resolve()}")
-        print("Pressione Ctrl+C para encerrar.")
-        if not args.no_browser:
-            threading.Timer(0.4, lambda: webbrowser.open(url)).start()
-        try:
-            server.serve_forever()
-        except KeyboardInterrupt:
-            print("\nEncerrado.")
+    with data_directory_lock(args.db.parent):
+        store = FinanceStore(args.db)
+        with FinanceHTTPServer(("127.0.0.1", args.port), store) as server:
+            url = f"http://127.0.0.1:{server.server_port}"
+            print(f"Finanças disponível em {url}",flush=True)
+            print(f"Dados salvos em {args.db.resolve()}")
+            print("Pressione Ctrl+C para encerrar.")
+            if not args.no_browser:
+                threading.Timer(0.4, lambda: webbrowser.open(url)).start()
+            try:
+                server.serve_forever()
+            except KeyboardInterrupt:
+                print("\nEncerrado.")
 
 
 if __name__ == "__main__":

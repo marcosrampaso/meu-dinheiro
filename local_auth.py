@@ -6,7 +6,9 @@ import hashlib
 import hmac
 import json
 import os
+import platform
 import secrets
+import shutil
 import subprocess
 import threading
 import time
@@ -78,8 +80,12 @@ class LocalAuth:
             temporary.unlink(missing_ok=True)
 
     def _prepare(self) -> None:
-        if os.uname().sysname != "Darwin":
+        if platform.system() != "Darwin":
             raise LocalAuthError("Touch ID requer macOS.")
+        bundled = self.source.with_name('touchid-helper')
+        if not self.binary.exists() and bundled.is_file() and bundled.resolve() != self.binary.resolve():
+            shutil.copyfile(bundled,self.binary)
+            self.binary.chmod(0o700)
         if not self.binary.exists() or self.binary.stat().st_mtime < self.source.stat().st_mtime:
             module_cache = self.private_dir / "swift-module-cache"
             module_cache.mkdir(mode=0o700, exist_ok=True)

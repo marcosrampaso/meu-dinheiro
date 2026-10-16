@@ -22,11 +22,16 @@ const localAuth = (() => {
   let lastRenewedAt = 0;
   let activityTimer = null;
   let renewing = false;
+  let accountsEnabled = false;
+  let currentPrincipal = null;
+  const registerForm = document.querySelector('#local-register-form');
+  const accountActions = document.querySelector('#local-account-actions');
 
   function rememberSession() {
     try {
       if (token) window.sessionStorage.setItem(storageKey, JSON.stringify({ token,
-        last_activity_at: lastActivityAt, expires_at: expiresAt, session_seconds: sessionMilliseconds / 1000 }));
+        last_activity_at: lastActivityAt, expires_at: expiresAt, session_seconds: sessionMilliseconds / 1000,
+        principal_id:currentPrincipal }));
       else window.sessionStorage.removeItem(storageKey);
     } catch (_) { /* The current page still works when tab storage is unavailable. */ }
   }
@@ -40,14 +45,20 @@ const localAuth = (() => {
     } else timer = window.setTimeout(checkIdle, Math.max(1, expiresAt - Date.now()));
   }
 
-  function establishSession(authToken, accessMethod, duration, lastActive, deadline) {
+  function establishSession(authToken, accessMethod, duration, lastActive, deadline, principal = null) {
     token = authToken; method = accessMethod;
     sessionMilliseconds = duration * 1000;
     lastActivityAt = lastActive;
     lastReportedActivityAt = lastActive;
     lastRenewedAt = Date.now();
     expiresAt = Math.min(deadline, lastActive + sessionMilliseconds);
+    currentPrincipal = principal;
     rememberSession();
+    if (principal) {
+      const previous = window.sessionStorage.getItem('local-active-principal');
+      window.sessionStorage.setItem('local-active-principal',principal);
+      if (previous && previous !== principal) { window.location.reload(); return; }
+    }
     document.body.classList.remove("locked"); overlay.hidden = true;
     resolveGate(token); checkIdle();
   }
@@ -71,7 +82,7 @@ const localAuth = (() => {
       const deadline = Math.min(saved.expires_at, started + result.remaining_seconds * 1000);
       if (!response.ok || !Number.isFinite(result.remaining_seconds) || result.remaining_seconds <= 0 ||
           result.session_seconds !== 300 || deadline <= Date.now()) { rememberSession(); return; }
-      establishSession(saved.token, result.method, result.session_seconds, saved.last_activity_at, deadline);
+      establishSession(saved.token, result.method, result.session_seconds, saved.last_activity_at, deadline,result.principal_id);
       await refreshStatus();
     } catch (_) { rememberSession(); }
   }
@@ -114,8 +125,14 @@ const localAuth = (() => {
   }
 
   function renderStatus(result) {
+    accountsEnabled = Boolean(result.accounts_enabled);
+    document.querySelector('#local-username-label').hidden = !accountsEnabled;
+    passwordLogin.elements.username.disabled = !accountsEnabled;
+    passwordLogin.elements.username.required = accountsEnabled;
+    if (accountsEnabled && !passwordLogin.elements.username.value) passwordLogin.elements.username.value = result.profile?.username || result.owner_username || '';
+    accountActions.hidden = !accountsEnabled;
     button.hidden = !result.touch_id_available;
-    passwordLogin.hidden = !result.password_configured;
+    passwordLogin.hidden = accountsEnabled ? Boolean(!registerForm.hidden) : !result.password_configured;
     removeButton.hidden = !result.password_configured;
     document.querySelector("#local-password-state").textContent = result.password_configured ? "Senha cadastrada" : "Somente Touch ID";
     settingsForm.elements.current_password.closest("label").hidden = method !== "password";
@@ -124,11 +141,23 @@ const localAuth = (() => {
       ? "Desbloqueie com sua senha local ou com Touch ID, quando disponível."
       : result.touch_id_available ? "Use o Touch ID deste Mac. Depois, cadastre uma senha local em Configurações."
         : "Nenhuma forma de acesso está disponível. Ative o Touch ID deste Mac para cadastrar a primeira senha local.";
+    if (accountsEnabled) {
+      description.textContent = result.first_registration ? 'Crie sua primeira conta neste dispositivo ou explore com dados fictícios.' : 'Entre com usuário e senha. O Touch ID abre somente a conta principal deste dispositivo.';
+      const banner = document.querySelector('#local-account-banner');
+      banner.hidden = !result.profile;
+      if (result.profile) {
+        banner.classList.toggle('demo-mode',result.profile.demo);
+        document.querySelector('#local-account-label').textContent = result.profile.demo
+          ? 'DEMONSTRAÇÃO · dados fictícios · alterações temporárias · integrações desligadas'
+          : `${result.profile.display_name} · @${result.profile.username} · conta local`;
+        settingsForm.hidden = Boolean(result.profile.demo);
+      }
+    }
   }
 
   async function refreshStatus() {
     try {
-      const response = await fetch("/api/v1/local-auth/status", { cache: "no-store" });
+      const response = await fetch("/api/v1/local-auth/status", { cache: "no-store",headers:token ? {'X-Local-Session':token} : {} });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Não foi possível verificar o acesso.");
       renderStatus(result);
@@ -164,7 +193,8 @@ const localAuth = (() => {
     try {
       const response = await fetch(accessMethod === "password" ? "/api/v1/local-auth/password-login" : "/api/v1/local-auth/unlock", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: accessMethod === "password" ? JSON.stringify({ password: passwordLogin.elements.password.value }) : "{}",
+        body: accessMethod === "password" ? JSON.stringify({ password: passwordLogin.elements.password.value,
+          username:accountsEnabled ? passwordLogin.elements.username.value : undefined }) : "{}",
         cache: "no-store",
       });
       const result = await response.json();
@@ -178,7 +208,7 @@ const localAuth = (() => {
         return;
       }
       const now = Date.now();
-      establishSession(result.token, accessMethod, result.session_seconds, now, now + result.session_seconds * 1000);
+      establishSession(result.token, accessMethod, result.session_seconds, now, now + result.session_seconds * 1000,result.profile?.principal_id);
       await refreshStatus();
     } catch (error) {
       status.textContent = error.message;
@@ -241,6 +271,34 @@ const localAuth = (() => {
   }
 
   button.addEventListener("click", () => unlock("touch_id"));
+  function showRegistration(show) {
+    registerForm.hidden = !show; passwordLogin.hidden = show;
+    accountActions.hidden = show; button.hidden = show || button.hidden;
+    status.textContent = '';
+    if (!show) { registerForm.reset(); void refreshStatus(); }
+  }
+  document.querySelector('#local-register-toggle').addEventListener('click',()=>showRegistration(true));
+  document.querySelector('#local-register-cancel').addEventListener('click',()=>showRegistration(false));
+  async function createAccount(demo = false) {
+    const submit = document.querySelector(demo ? '#local-demo-button' : '#local-register-button');
+    submit.disabled = true; status.classList.remove('error');
+    status.textContent = demo ? 'Preparando os dados fictícios…' : 'Criando sua conta local…';
+    try {
+      const body = demo ? {} : Object.fromEntries(new FormData(registerForm));
+      const response = await fetch(demo ? '/api/v1/local-auth/demo' : '/api/v1/local-auth/register',{
+        method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),cache:'no-store'});
+      const result = await response.json();
+      if (!response.ok || !result.token) throw new Error(result.error || 'Não foi possível criar a conta.');
+      registerForm.reset(); registerForm.hidden=true;
+      const now = Date.now();
+      establishSession(result.token,demo ? 'demo' : 'password',result.session_seconds,now,now+result.session_seconds*1000,result.profile.principal_id);
+      await refreshStatus();
+    } catch (error) { status.textContent=error.message; status.classList.add('error'); }
+    finally { submit.disabled=false; }
+  }
+  registerForm.addEventListener('submit',event=>{event.preventDefault();void createAccount(false);});
+  document.querySelector('#local-demo-button').addEventListener('click',()=>createAccount(true));
+  document.querySelector('#local-account-switch').addEventListener('click',async()=>{await lockExplicitly();window.location.reload();});
   passwordLogin.addEventListener("submit", event => { event.preventDefault(); unlock("password"); });
   settingsForm.addEventListener("submit", event => { event.preventDefault(); configurePassword(false); });
   removeButton.addEventListener("click", () => configurePassword(true));

@@ -36,13 +36,24 @@
       <p id="local-auth-description">Use o Touch ID deste Mac ou sua senha local para abrir seus dados financeiros.</p>
       <button id="local-auth-button" class="primary-button" type="button">Desbloquear com Touch ID</button>
       <form id="local-password-login" hidden>
+        <label id="local-username-label" hidden>Usuário<input name="username" autocomplete="username" maxlength="32" disabled></label>
         <label>Senha local<input name="password" type="password" autocomplete="current-password" maxlength="256" required></label>
         <button id="local-password-login-button" class="secondary-button" type="submit">Entrar com senha</button>
+      </form>
+      <div id="local-account-actions" hidden><button id="local-register-toggle" class="text-button" type="button">Criar minha conta local</button><button id="local-demo-button" class="secondary-button" type="button">Explorar demonstração</button><p class="helper">A demonstração usa dados fictícios e não conecta bancos ou IA.</p></div>
+      <form id="local-register-form" hidden>
+        <label>Como quer ser chamado?<input name="display_name" autocomplete="name" maxlength="60" required></label>
+        <label>Usuário<input name="username" autocomplete="username" minlength="3" maxlength="32" pattern="[a-zA-Z0-9][a-zA-Z0-9_.-]{2,31}" required></label>
+        <label>Senha<input name="password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></label>
+        <label>Repita a senha<input name="password_confirmation" type="password" autocomplete="new-password" minlength="12" maxlength="256" required></label>
+        <p class="helper">Cadastro neste dispositivo. Guarde sua senha: não há recuperação por e-mail.</p>
+        <button id="local-register-button" class="primary-button" type="submit">Criar conta e entrar</button><button id="local-register-cancel" class="text-button" type="button">Voltar para o login</button>
       </form>
       <p id="local-auth-status" class="import-status" role="status" aria-live="polite"></p>
     </div>
   </section>
   <div class="shell">
+    <div id="local-account-banner" class="local-account-banner" hidden><span id="local-account-label"></span><button id="local-account-switch" class="text-button" type="button">Sair / trocar conta</button></div>
     <header class="topbar">
       <div class="brand"><span class="brand-mark" aria-hidden="true">◈</span><div><span>Meu Dinheiro</span><small>Seu espaço financeiro</small></div></div>
       <div class="topbar-actions">

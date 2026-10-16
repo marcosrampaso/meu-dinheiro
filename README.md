@@ -1,6 +1,24 @@
 # Meu Dinheiro
 
-Aplicação local de finanças em Python, com tela no navegador e API JSON. Organiza lançamentos pessoais e de empresa, importa extratos e faturas, mostra gráficos mensais e permite revisar sugestões de categorias para compras.
+Aplicação local de finanças em Python, com tela no navegador, API JSON, contas locais e uma prévia de aplicativo macOS. Organiza lançamentos pessoais e de empresa, importa extratos e faturas, mostra gráficos mensais e permite revisar sugestões de categorias para compras.
+
+
+## Contas locais e demonstração
+
+Na tela de acesso, use **Criar minha conta local** para cadastrar nome, usuário e senha (mínimo de 12 caracteres). O cadastro existe somente neste dispositivo, sem envio de e-mail. Não há recuperação por e-mail. A primeira conta de uma instalação vazia assume a pasta principal; as seguintes recebem bancos e credenciais separados em `data/accounts/<identidade>/`. As senhas são hashes scrypt com sal individual, nunca texto puro. Há limitação de tentativas e expiração após cinco minutos sem atividade; o F5 preserva uma sessão ainda válida.
+
+Quem já usava o projeto mantém a identidade, a senha e o histórico existentes. Essa conta passa a ter o usuário **`principal`**. O Touch ID abre apenas essa conta; novos cadastros usam a própria senha. **Sair / trocar conta** encerra a sessão e recarrega a página para remover dados e rascunhos da conta anterior. O servidor escolhe banco, integrações, prévias e tokens pela sessão autenticada, sem aceitar uma identidade arbitrária do cliente. O retorno OAuth é associado à conta que iniciou a conexão pelo estado da solicitação.
+
+**Explorar demonstração** cria um espaço temporário com dados fictícios. É possível alterar categorias, lançamentos e planos. A demonstração não acessa o histórico principal, não inicia consultas de mercado e bloqueia conexões bancárias e chamadas de IA. As notícias demonstrativas são identificadas como exemplos. Os arquivos temporários são removidos no encerramento normal; não compartilhe credenciais para permitir que alguém teste o projeto.
+
+O cadastro separa o acesso dentro da aplicação. Ele **não criptografa integralmente os arquivos SQLite** nem impede que alguém com controle da mesma conta do sistema operacional leia os arquivos. Faça backup da pasta inteira, com o app fechado. Uma trava impede duas instâncias de usar a mesma pasta simultaneamente.
+
+## Aplicativo e portfólio
+
+A prévia para **macOS Apple Silicon (26+)** é gerada em `.app` e DMG sem incluir dados locais. Veja [compilação, instalação e limitações da distribuição](desktop/README.md). A versão local usa assinatura ad hoc; uma publicação externa precisa de Developer ID e notarização. O arquivo gerado não é publicado automaticamente no GitHub.
+
+O [estudo de caso do portfólio](docs/PORTFOLIO.md) resume o problema, as decisões técnicas e um roteiro de demonstração. Todas as imagens de demonstração devem usar dados fictícios.
+
 
 ## Começar
 
