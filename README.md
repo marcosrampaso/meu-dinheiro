@@ -80,6 +80,10 @@ O CSV de conta corrente do Inter traz data, histórico, descrição, valor e sal
 
 ## Importar dados
 
+Na aba **Finanças**, o **Resumo semanal** mostra a última semana concluída: barras de todas as categorias e uma lista dos gastos por dia, com descrição, valor e origem (cartão ou conta). Clique em uma barra para filtrar a lista; **Ver todas** remove o filtro. O gráfico e os detalhes são calculados com os registros locais, sem chamar a IA. Ao gerar insights, somente os agregados das duas semanas são enviados ao Luna.
+
+Ao lado, **Comparar meses** compara o mês atual com os dois anteriores, do dia 1 até o mesmo dia do mês (limitado ao último dia em meses mais curtos). Mostra totais, variação, cartão/conta separados e categorias. Essas duas análises usam a data da compra, respeitam a área Pessoal/PJ/Todas e excluem pagamentos de fatura e transferências identificadas. Os totais dependem da completude do histórico importado; ausência de gastos não comprova ausência de movimentação. O olhinho oculta valores e gráficos nas duas visões.
+
 Na seção **Trazer extrato do banco**, escolha Inter ou Banco do Brasil, o tipo de arquivo e a visão Pessoal ou PJ. Use o mesmo nome de conta ou cartão nas importações seguintes.
 
 Para faturas PDF, é possível selecionar vários arquivos do mesmo banco e cartão. Confirme o mês de cada fatura, veja a prévia e só então importe. O leitor funciona com PDFs que contêm texto selecionável; PDFs digitalizados como imagem ainda precisam de OCR. O formato do Inter é conferido contra o total impresso na fatura quando disponível. **O layout de faturas do BB ainda não foi validado com uma amostra real; confira cuidadosamente a prévia e a soma antes de confirmar.** PDFs protegidos por AES podem exigir o pacote opcional `cryptography` no ambiente Python.

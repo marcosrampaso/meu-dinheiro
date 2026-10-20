@@ -17,6 +17,7 @@
   <script src="/investments.js" defer></script>
   <script src="/news.js" defer></script>
   <script src="/weekly.js" defer></script>
+  <script src="/spending-comparison.js" defer></script>
   <script src="/planning.js" defer></script>
   <script src="/performance.js" defer></script>
   <script src="/plans.js" defer></script>
@@ -123,15 +124,42 @@
         </div>
       </section>
 
-      <section class="panel weekly-panel" aria-labelledby="weekly-title">
+      <section class="panel weekly-panel" aria-label="Análises de gastos">
+        <div class="spending-analysis-tabs" role="tablist" aria-label="Períodos de análise">
+          <button id="weekly-tab" type="button" role="tab" aria-selected="true" aria-controls="weekly-content">Resumo semanal</button>
+          <button id="comparison-tab" type="button" role="tab" aria-selected="false" aria-controls="comparison-content" tabindex="-1">Comparar meses</button>
+        </div>
+        <div id="weekly-content" role="tabpanel" aria-labelledby="weekly-tab">
         <div class="panel-header"><div><p class="eyebrow">RESUMO SEMANAL</p><h2 id="weekly-title">Como foram seus gastos</h2><p id="weekly-period">Carregando a última semana concluída...</p></div><strong id="weekly-total">—</strong></div>
         <p class="panel-intro">Débito e cartão pela data da compra; sem pagamentos de fatura e transferências. Os totais refletem apenas os dados já registrados.</p>
         <div id="weekly-comparison" class="weekly-comparison"></div>
         <div id="weekly-highlights" class="weekly-highlights"></div>
-        <div id="weekly-categories" class="weekly-categories"></div>
+        <div class="weekly-breakdown">
+          <section class="weekly-category-panel" aria-labelledby="weekly-chart-title">
+            <h3 id="weekly-chart-title">Onde você gastou</h3>
+            <p class="weekly-hint">Selecione uma barra para ver as compras da categoria.</p>
+            <div id="weekly-categories" class="chart-area weekly-chart" aria-label="Gastos da semana por categoria"></div>
+          </section>
+          <section class="weekly-transactions-panel" aria-labelledby="weekly-list-title">
+            <div class="weekly-list-header"><h3 id="weekly-list-title">Gastos da semana</h3><button id="weekly-clear-filter" type="button" class="secondary-button" hidden>Ver todas</button></div>
+            <p id="weekly-list-summary" class="weekly-hint" aria-live="polite"></p>
+            <div id="weekly-transactions" class="weekly-transactions"></div>
+          </section>
+        </div>
         <p class="weekly-privacy">Ao gerar, o GPT-6 Luna recebe apenas os totais por categoria desta semana e da anterior. Descrições, lançamentos individuais, saldos e arquivos não são enviados. A análise só muda quando você clicar para gerar.</p>
         <div class="form-actions"><button id="weekly-generate" class="secondary-button" type="button" disabled>Gerar insights com Luna</button><span id="weekly-status" role="status" aria-live="polite"></span></div>
         <div id="weekly-report" class="weekly-report" aria-live="polite"></div>
+        </div>
+        <div id="comparison-content" role="tabpanel" aria-labelledby="comparison-tab" hidden>
+          <div class="panel-header"><div><p class="eyebrow">MESMO INTERVALO</p><h2 id="comparison-title">Seus gastos até hoje</h2><p id="comparison-period"></p></div></div>
+          <p class="panel-intro">Do dia 1 até o mesmo dia do mês, nos três meses. Conta e cartão pela data da compra; sem pagamentos de fatura, aplicações e transferências identificadas.</p>
+          <div id="comparison-status" class="weekly-hint" role="status" aria-live="polite"></div>
+          <div id="comparison-totals" class="comparison-totals"></div>
+          <div id="comparison-chart" class="chart-area comparison-chart" aria-label="Gastos no mesmo intervalo dos três meses"></div>
+          <h3 class="comparison-category-title">O que mudou nas categorias</h3>
+          <div id="comparison-categories" class="comparison-categories"></div>
+          <p class="weekly-hint">A comparação usa apenas os lançamentos registrados, incluindo compras provisórias do cartão. Meses sem dados podem estar incompletos. Nos meses mais curtos, o intervalo termina no último dia disponível.</p>
+        </div>
       </section>
 
       <div class="planning-grid">

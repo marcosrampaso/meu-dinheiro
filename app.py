@@ -25,7 +25,8 @@ from xp_positions import parse_xp_positions
 from investment_news import ResearchError, research_assets, personalize_report
 from market_quotes import MarketQuotes
 from cdi import CDIBenchmark
-from weekly import WeeklyError, weekly_context, saved_weekly_report, save_weekly_report, generate_weekly_report
+from weekly import WeeklyError, weekly_context, weekly_transactions, saved_weekly_report, save_weekly_report, generate_weekly_report
+from weekly import month_to_date_comparison
 from planning import (budget_overview, save_budget, delete_budget, data_health,
                       calendar_overview, save_commitment, delete_commitment,
                       save_card_due_rule, delete_card_due_rule)
@@ -59,6 +60,7 @@ STATIC_FILES = {
     "/investments.js": (BASE_DIR / "static" / "investments.js", "text/javascript; charset=utf-8"),
     "/news.js": (BASE_DIR / "static" / "news.js", "text/javascript; charset=utf-8"),
     "/weekly.js": (BASE_DIR / "static" / "weekly.js", "text/javascript; charset=utf-8"),
+    "/spending-comparison.js": (BASE_DIR / "static" / "spending-comparison.js", "text/javascript; charset=utf-8"),
     "/planning.js": (BASE_DIR / "static" / "planning.js", "text/javascript; charset=utf-8"),
     "/performance.js": (BASE_DIR / "static" / "performance.js", "text/javascript; charset=utf-8"),
     "/manual-investments.js": (BASE_DIR / "static" / "manual-investments.js", "text/javascript; charset=utf-8"),
@@ -371,9 +373,13 @@ class FinanceHandler(BaseHTTPRequestHandler):
                                        "credentials_saved": self.server.pluggy.config_path.is_file(),
                                        "last_sync": {source: value.replace(" ", "T") + "Z" for source,value in syncs.items()}})
             return
+        if path == API_PREFIX + "/spending-comparison":
+            self._json(HTTPStatus.OK, month_to_date_comparison(self.server.store, self._scope(query)))
+            return
         if path == API_PREFIX + "/weekly-summary":
             context = weekly_context(self.server.store, self._scope(query))
             self._json(HTTPStatus.OK, {"period": {key: value for key, value in context.items() if key != "signature"},
+                                       "transactions": weekly_transactions(self.server.store, context),
                                        "report": saved_weekly_report(self.server.store, context),
                                        "chatgpt_connected": self.server.auth.status()["connected"]})
             return
@@ -590,6 +596,7 @@ class FinanceHandler(BaseHTTPRequestHandler):
             report = generate_weekly_report(context, token, model)
             save_weekly_report(self.server.store, context, report)
             self._json(HTTPStatus.OK, {"period": {key: value for key, value in context.items() if key != "signature"},
+                                       "transactions": weekly_transactions(self.server.store, context),
                                        "report": saved_weekly_report(self.server.store, context),
                                        "chatgpt_connected": True})
             return

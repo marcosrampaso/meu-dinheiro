@@ -1,6 +1,6 @@
 """Isolated UI fixture. Fake authentication and synthetic financial records only."""
 
-from datetime import date
+from datetime import date, timedelta
 import calendar
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -110,6 +110,28 @@ def main():
                    "category":"Mercado","scope":"personal","occurred_on":date.today().isoformat()})
         if "--history" in sys.argv:
             seed_history(store)
+        if '--weekly' in sys.argv:
+            from weekly import weekly_context
+            start = date.fromisoformat(weekly_context(store)['starts_on'])
+            with store._connect() as c:
+                c.execute('DELETE FROM transactions')
+                c.execute('DELETE FROM category_examples')
+            for description, amount, category, kind, excluded, scope, day in [
+                ('Mercado exemplo','25','Mercado','expense',False,'personal',start),
+                ('Café <img src=x onerror=alert(1)>','15','Alimentação','expense',False,'personal',start),
+                ('A revisar','5','Importado','expense',False,'personal',start),
+                ('Pagamento de fatura exemplo','80','Pagamento de fatura','expense',False,'personal',start),
+                ('Investimento exemplo','50','Transferência para investimento','expense',False,'personal',start),
+                ('Ignorado exemplo','100','Outros','expense',True,'personal',start),
+                ('Receita exemplo','1000','Receita','income',False,'personal',start),
+                ('Empresa exemplo','500','Serviços','expense',False,'business',start),
+                ('Semana passada exemplo','10','Mercado','expense',False,'personal',start-timedelta(days=7)),
+            ]:
+                store.add({'description':description,'amount':amount,'category':category,'kind':kind,
+                    'excluded':excluded,'scope':scope,'occurred_on':day.isoformat()})
+            store.add_card_purchase({'bank':'inter','account':'exemplo','scope':'personal',
+                'invoice_month':date.today().isoformat()[:7],'occurred_on':(start+timedelta(days=1)).isoformat(),
+                'description':'Assinatura exemplo','amount':'40','category':'Assinaturas'})
         if '--news' in sys.argv:
             seed_history(store)
             store.import_xp_positions({'as_of':date.today().isoformat(),'total_cents':150000,'assets_cents':150000,

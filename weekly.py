@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import calendar
 import json
 import re
 from datetime import date, datetime, timedelta, timezone
@@ -17,6 +18,63 @@ class WeeklyError(RuntimeError):
     pass
 
 
+def _weekly_category(original: str) -> str:
+    return ("Não categorizado" if original == "Importado" else original
+            if original in PURCHASE_CATEGORIES or re.fullmatch(r"[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ -]{0,39}", original)
+            else "Outros")
+
+
+def _weekly_spending(store: FinanceStore, scope: str, start: str, end: str) -> list[dict]:
+    with store._connect() as connection:
+        return [dict(row) for row in connection.execute("""
+            SELECT id, occurred_on, description, category, amount_cents, scope, source, invoice_month, pending
+            FROM transactions
+            WHERE kind = 'expense' AND excluded = 0
+              AND category NOT IN ('Pagamento de fatura', 'Transferência para investimento')
+              AND occurred_on BETWEEN ? AND ?
+              AND (? = 'all' OR scope = ?)
+            ORDER BY occurred_on DESC, id DESC
+        """, (start, end, scope, scope))]
+
+
+def weekly_transactions(store: FinanceStore, context: dict) -> list[dict]:
+    """Local drill-down only: keep individual purchases out of the AI context."""
+    rows = _weekly_spending(store, context['scope'], context['starts_on'], context['ends_on'])
+    for row in rows:
+        row['category'] = _weekly_category(row['category'])
+        row['payment_type'] = 'credit' if row['invoice_month'] else 'account'
+    return rows
+
+
+def month_to_date_comparison(store: FinanceStore, scope: str = 'personal', today: date | None = None) -> dict:
+    scope = validate_scope(scope, allow_all=True)
+    today = today or date.today()
+    periods = []
+    for offset in range(3):
+        month_index = today.year * 12 + today.month - 1 - offset
+        year, month_zero = divmod(month_index, 12)
+        month = month_zero + 1
+        start = date(year, month, 1)
+        end = date(year, month, min(today.day, calendar.monthrange(year, month)[1]))
+        rows = _weekly_spending(store, scope, start.isoformat(), end.isoformat())
+        categories = {}
+        for row in rows:
+            name = _weekly_category(row['category'])
+            categories[name] = categories.get(name, 0) + row['amount_cents']
+        periods.append({'month': start.isoformat()[:7], 'starts_on': start.isoformat(),
+                        'ends_on': end.isoformat(), 'days': end.day, 'count': len(rows),
+                        'total_cents': sum(row['amount_cents'] for row in rows),
+                        'credit_cents': sum(row['amount_cents'] for row in rows if row['invoice_month']),
+                        'account_cents': sum(row['amount_cents'] for row in rows if not row['invoice_month']),
+                        'categories': categories})
+    current = periods[0]['total_cents']
+    for period in periods[1:]:
+        previous = period['total_cents']
+        period['change_cents'] = current - previous
+        period['change_percent'] = round(100 * (current - previous) / previous, 1) if previous else None
+    return {'as_of': today.isoformat(), 'day': today.day, 'scope': scope, 'periods': periods}
+
+
 def weekly_context(store: FinanceStore, scope: str = "personal", today: date | None = None) -> dict:
     scope = validate_scope(scope, allow_all=True)
     today = today or date.today()
@@ -24,22 +82,11 @@ def weekly_context(store: FinanceStore, scope: str = "personal", today: date | N
     previous = start - timedelta(days=7)
     end = start + timedelta(days=6)
     categories: dict[str, dict[str, int]] = {}
-    with store._connect() as connection:
-        rows = connection.execute("""
-            SELECT occurred_on, category, amount_cents FROM transactions
-            WHERE kind = 'expense' AND excluded = 0
-              AND category NOT IN ('Pagamento de fatura', 'Transferência para investimento')
-              AND occurred_on BETWEEN ? AND ?
-              AND (? = 'all' OR scope = ?)
-        """, (previous.isoformat(), end.isoformat(), scope, scope))
-        for row in rows:
-            original = row["category"]
-            category = ("Não categorizado" if original == "Importado" else original
-                        if original in PURCHASE_CATEGORIES or re.fullmatch(r"[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ -]{0,39}", original)
-                        else "Outros")
-            period = "current" if row["occurred_on"] >= start.isoformat() else "previous"
-            amounts = categories.setdefault(category, {"current_cents": 0, "previous_cents": 0})
-            amounts[f"{period}_cents"] += row["amount_cents"]
+    for row in _weekly_spending(store, scope, previous.isoformat(), end.isoformat()):
+        category = _weekly_category(row["category"])
+        period = "current" if row["occurred_on"] >= start.isoformat() else "previous"
+        amounts = categories.setdefault(category, {"current_cents": 0, "previous_cents": 0})
+        amounts[f"{period}_cents"] += row["amount_cents"]
     ordered = [{"category": name, **amounts} for name, amounts in categories.items()]
     ordered.sort(key=lambda item: (-item["current_cents"], item["category"]))
     current_total = sum(row["current_cents"] for row in ordered)

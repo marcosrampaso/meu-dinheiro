@@ -206,7 +206,12 @@ class ApiTests(unittest.TestCase):
         status, weekly = self.call_api("/api/v1/weekly-summary?scope=personal")
         self.assertEqual(status, 200)
         self.assertIn("categories", weekly["period"])
+        self.assertIsInstance(weekly['transactions'], list)
         self.assertEqual(self.call_api("/api/v1/weekly-summary?scope=invalid")[0], 400)
+        status, comparison = self.call_api('/api/v1/spending-comparison?scope=personal')
+        self.assertEqual(status,200)
+        self.assertEqual(len(comparison['periods']),3)
+        self.assertEqual(self.call_api('/api/v1/spending-comparison?scope=invalid')[0],400)
 
     def test_weekly_generation_is_on_demand_and_cached(self):
         status, initial = self.call_api("/api/v1/weekly-summary")
@@ -220,6 +225,7 @@ class ApiTests(unittest.TestCase):
             status, response = self.call_api("/api/v1/weekly-summary", "POST", {"scope": "personal"})
         self.assertEqual(status, 200)
         self.assertEqual(response["report"]["headline"], "Mercado liderou")
+        self.assertEqual(len(response['transactions']),1)
         generate.assert_called_once()
         self.assertIsNotNone(self.call_api("/api/v1/weekly-summary")[1]["report"])
 
