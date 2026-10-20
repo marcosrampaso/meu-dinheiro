@@ -7,6 +7,11 @@ node_modules/
 
 # Dados financeiros e copias locais
 data/
+# Runtime files can also be created in a folder selected in the desktop app.
+application.lock
+desktop.log
+local-identity.json
+touchid-helper
 *.db
 *.db-*
 *.sqlite*

@@ -181,7 +181,7 @@ class PluggyXP:
     def preview_sync(self, http_json=_http_json) -> dict:
         from pluggy_sync import revision
         current_revision = revision(self.store,'XP')
-        from pluggy_inter import _pages, _transactions, _iso_date, _cents as signed_cents
+        from pluggy_inter import _pages, _transactions, _iso_date, _transaction_cents, _cents as signed_cents
         from manual_investments import imported_flow_kind
         config = self.load_config()
         if not config.get("item_id"):
@@ -241,9 +241,9 @@ class PluggyXP:
                 dates.append(occurred_on)
                 if row.get("status") != "POSTED" or occurred_on > date.today().isoformat():
                     continue
-                if row.get("currencyCode") != "BRL" or row.get("type") not in ("CREDIT", "DEBIT") or not UUID.fullmatch(str(row.get("id", ""))):
+                if row.get("type") not in ("CREDIT", "DEBIT"):
                     raise PluggyError("Uma movimentação XP veio incompleta.")
-                amount = abs(signed_cents(row.get("amount"))) * (1 if row["type"] == "CREDIT" else -1)
+                amount = abs(_transaction_cents(row)) * (1 if row["type"] == "CREDIT" else -1)
                 if not amount:
                     continue
                 description = re.sub(r"[\x00-\x1f]+", " ", str(row.get("description") or "")).strip()[:240]

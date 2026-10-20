@@ -209,11 +209,11 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.call_api("/api/v1/weekly-summary?scope=invalid")[0], 400)
 
     def test_weekly_generation_is_on_demand_and_cached(self):
-        self.store.add({"kind": "expense", "description": "Exemplo", "amount": "10,00",
-                        "category": "Mercado", "occurred_on": "2026-10-06"})
         status, initial = self.call_api("/api/v1/weekly-summary")
         self.assertEqual(status, 200)
         self.assertIsNone(initial["report"])
+        self.store.add({"kind": "expense", "description": "Exemplo", "amount": "10,00",
+                        "category": "Mercado", "occurred_on": initial["period"]["ends_on"]})
         with patch.object(self.server.auth, "luna_credentials", return_value=("test-token", "gpt-6-luna")), \
              patch("app.generate_weekly_report", return_value={"headline": "Mercado liderou",
                   "insights": ["Mercado concentrou os gastos.", "Revise a próxima semana."]}) as generate:

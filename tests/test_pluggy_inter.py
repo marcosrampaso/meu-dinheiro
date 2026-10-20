@@ -7,7 +7,7 @@ from unittest.mock import patch
 from pathlib import Path
 
 from finance import FinanceStore
-from pluggy_inter import PluggyInter, _bank_classification, _bill_months, card_payment, live_start
+from pluggy_inter import PluggyInter, _bank_classification, _bill_months, _transaction_cents, card_payment, live_start
 from pluggy_sync import same_invoice
 from pluggy_sync import restore_inter_history
 from pluggy_xp import PluggyError, PluggyXP
@@ -120,6 +120,69 @@ class PluggyInterTests(unittest.TestCase):
         self.assertEqual(repeat["replaced_count"], 4)
         self.inter.import_preview(repeat["preview_token"])
         self.assertEqual(len(self.store.list_month("2026-10")), 4)
+
+    def test_international_card_and_account_use_brl_amount_without_duplicates(self):
+        self.store.add_card_purchase({"bank": "inter", "account": "cartão principal",
+            "invoice_month": "2026-10", "description": "Restaurante", "category": "Alimentação",
+            "amount": "143,27", "occurred_on": "2026-10-10"})
+
+        def international(method, path, payload=None, api_key=None):
+            result = self.fake_http(method, path, payload, api_key)
+            if path.startswith('/v2/transactions?'):
+                row = result['results'][0 if CARD_ID in path else 1]
+                row.update(currencyCode='USD', amount=25 if CARD_ID in path else -10,
+                           amountInAccountCurrency=143.27 if CARD_ID in path else -57.30)
+                if CARD_ID in path:
+                    result['results'][-1].update(currencyCode='EUR', amount=15, amountInAccountCurrency=99.15)
+            return result
+
+        for _ in range(2):
+            preview = self.inter.preview(international)
+            self.inter.import_preview(preview['preview_token'])
+            rows = self.store.list_month('2026-10')
+            restaurant = [r for r in rows if r['description'] == 'Restaurante']
+            self.assertEqual(len(restaurant), 1)
+            self.assertEqual((restaurant[0]['amount_cents'], restaurant[0]['category']), (14327, 'Alimentação'))
+            self.assertEqual(next(r['amount_cents'] for r in rows if r['description'] == 'Mercado'), 5730)
+            self.assertEqual(next(r['amount_cents'] for r in rows if r['description'] == 'Compra pendente'), 9915)
+
+    def test_invalid_currency_conversion_or_id_never_changes_local_history(self):
+        first = self.inter.preview(self.fake_http)
+        self.inter.import_preview(first['preview_token'])
+        before = self.store.list_month('2026-10')
+        for changes, message in [
+            ({'currencyCode': 'USD'}, 'sem o valor convertido'),
+            ({'currencyCode': 'USD', 'amountInAccountCurrency': None}, 'sem o valor convertido'),
+            ({'currencyCode': 'USD', 'amountInAccountCurrency': float('nan')}, 'convertido inválido'),
+            ({'currencyCode': 'USD', 'amountInAccountCurrency': True}, 'convertido inválido'),
+            ({'currencyCode': None}, 'sem moeda válida'),
+            ({'id': None}, 'sem ID válido'),
+            ({'id': 'not-a-uuid'}, 'sem ID válido'),
+        ]:
+            with self.subTest(changes=changes):
+                def invalid(method, path, payload=None, api_key=None):
+                    result = self.fake_http(method, path, payload, api_key)
+                    if path.startswith('/v2/transactions?') and BANK_ID in path:
+                        result['results'][1].update(changes)
+                    return result
+                with self.assertRaisesRegex(PluggyError, message):
+                    self.inter.preview(invalid)
+                self.assertEqual(self.store.list_month('2026-10'), before)
+
+    def test_currency_amount_selection_preserves_refund_sign_and_brl_source(self):
+        row = {'id': BILL_ID, 'currencyCode': 'USD', 'amount': -20, 'amountInAccountCurrency': -115.23}
+        self.assertEqual(_transaction_cents(row), -11523)
+        row.update(currencyCode='BRL', amount=10.25, amountInAccountCurrency=999)
+        self.assertEqual(_transaction_cents(row), 1025)
+
+    def test_bill_matching_uses_converted_amounts_to_recognize_pdf_cycle(self):
+        remote = [transaction(f'bbbbbbb{i}-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '2026-09-10',
+            f'Loja exemplo {i}', 2, 'DEBIT', currencyCode='USD', amountInAccountCurrency=10+i,
+            creditCardMetadata={'billId': BILL_ID}) for i in range(10)]
+        local = [{'description': f'Loja exemplo {i}', 'occurred_on': '2026-09-10',
+                  'kind': 'expense', 'amount_cents': (10+i)*100} for i in range(10)]
+        self.assertEqual(_bill_months([{'id': BILL_ID, 'dueDate': '2026-10-10'}], remote,
+                                     {'2026-09': local}), {BILL_ID: '2026-09'})
 
     def test_new_card_charge_in_same_month_can_be_synced_later(self):
         first = self.inter.preview(self.fake_http)

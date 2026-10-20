@@ -101,6 +101,19 @@ class PluggyXPTests(unittest.TestCase):
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM investment_entries").fetchone()[0],1)
         self.assertNotIn("test-secret",json.dumps(preview))
 
+    def test_sync_uses_account_currency_for_foreign_movements(self):
+        def international(method, path, payload=None, api_key=None):
+            result = self.sync_http(method, path, payload, api_key)
+            if path.startswith('/v2/transactions?'):
+                result['results'][0].update(currencyCode='USD', amount=20, amountInAccountCurrency=113.78)
+            return result
+        for _ in range(2):
+            preview = self.integration.preview_sync(international)
+            self.integration.import_preview(preview['preview_token'])
+            with self.integration.store._connect() as connection:
+                rows = connection.execute('SELECT amount_cents FROM investment_entries').fetchall()
+            self.assertEqual([r[0] for r in rows], [11378])
+
     def test_sync_failure_rolls_back_all_data_and_keeps_backup(self):
         from pluggy_sync import apply_xp
         preview = self.integration.preview_sync(self.sync_http)

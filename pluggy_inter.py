@@ -61,6 +61,31 @@ def _cents(value: object) -> int:
     return int((amount * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
+def _transaction_cents(row: dict) -> int:
+    """Amounts must be in the already validated BRL account's currency.
+
+    Pluggy reports international purchases in their original currency and
+    supplies amountInAccountCurrency for the amount charged to the account.
+    Never estimate an exchange rate or treat the original amount as reais.
+    """
+    identifier = row.get("id")
+    if not isinstance(identifier, str) or not UUID.fullmatch(identifier):
+        raise PluggyError("Uma transação veio sem ID válido. Nenhum lançamento foi substituído.")
+    currency = row.get("currencyCode")
+    if not isinstance(currency, str) or not re.fullmatch(r"[A-Z]{3}", currency):
+        raise PluggyError("Uma transação veio sem moeda válida. Nenhum lançamento foi substituído.")
+    if currency == "BRL":
+        return _cents(row.get("amount"))
+    if row.get("amountInAccountCurrency") is None:
+        raise PluggyError(f"Uma transação em {currency} veio sem o valor convertido em reais. "
+                         "Nenhum lançamento foi substituído; atualize a conexão na Pluggy e confira novamente.")
+    try:
+        return _cents(row["amountInAccountCurrency"])
+    except PluggyError as exc:
+        raise PluggyError(f"Uma transação em {currency} veio com valor convertido inválido. "
+                         "Nenhum lançamento foi substituído.") from exc
+
+
 def _iso_date(value: object, label: str) -> str:
     if not isinstance(value, str):
         raise PluggyError(f"A Pluggy devolveu {label} sem data válida.")
@@ -164,7 +189,7 @@ def _bill_months(bills, transactions, local_invoices):
             if row.get('type') not in ('DEBIT', 'CREDIT'):
                 continue  # The transaction validator below reports the error.
             entries.append({'description':description, 'occurred_on':_iso_date(row.get('date'), 'uma transação'),
-                'kind':'expense' if row['type'] == 'DEBIT' else 'income', 'amount_cents':abs(_cents(row.get('amount')))})
+                'kind':'expense' if row['type'] == 'DEBIT' else 'income', 'amount_cents':abs(_transaction_cents(row))})
         recognized = [month for month, rows in local_invoices.items()
                       if month == previous_month and same_invoice(entries, rows)]
         if recognized:
@@ -272,8 +297,7 @@ class PluggyInter:
                 if row.get("status") != "POSTED" and not (is_card and row.get("status") == "PENDING"):
                     skipped["pending"] += 1
                     continue
-                if row.get("currencyCode") != "BRL" or not UUID.fullmatch(str(row.get("id", ""))):
-                    raise PluggyError("Uma transação veio sem ID válido ou fora de reais.")
+                amount = _transaction_cents(row)
                 description = re.sub(r"[\x00-\x1f]+", " ", str(row.get("description") or "")).strip()[:120]
                 if not description:
                     raise PluggyError("Uma transação veio sem descrição.")
@@ -284,7 +308,6 @@ class PluggyInter:
                 if occurred_on > date.today().isoformat():
                     skipped["future"] += 1
                     continue
-                amount = _cents(row.get("amount"))
                 if amount == 0:
                     skipped["zero"] += 1
                     continue
